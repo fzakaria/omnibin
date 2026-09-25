@@ -5,8 +5,10 @@ One source for both, because a release whose notes disagree with the README is
 a release nobody can check. Everything here is read back out of the database
 that was actually built, never passed in.
 
-    tools/status.py --db data/omnibin-x86_64-linux.db --readme
-    tools/status.py --db data/omnibin-x86_64-linux.db --notes --tag data-20260924
+    tools/status.py --db data/omnibin-*.db --readme
+    tools/status.py --db data/omnibin-*.db --notes --tag data-20260925
+
+One database per system, and every system published gets its own line.
 """
 
 import argparse
@@ -60,44 +62,63 @@ def most_versioned(db, limit):
     ).fetchall()
 
 
-def readme_block(c, tag):
+def readme_block(counts_by_system, tag):
     """The lines that go between the markers in README.md."""
-    size = c["bytes"] / 1e12
-    return "\n".join(
-        [
-            "",
-            f"- **{c['names']:,} executables** on `PATH`, over **{c['pkgs']:,} package "
-            f"versions** of **{c['attrs']:,} attributes**",
-            f"- **{c['bins']:,}** `name@version` forms, addressing "
-            f"**{c['paths']:,}** store paths and {size:,.1f} TB of unpacked bytes",
-            f"- {c['oldest']} to {c['newest']}, for `{c['system']}`, "
-            f"built from nixpkgs-multiverse `{tag}`",
-            "",
-        ]
-    )
-
-
-def release_notes(db, c, tag, multiverse_tag):
-    """The body of a data release."""
     lines = [
-        f"File listings crawled from cache.nixos.org, and the index built from them.",
         "",
-        f"Built from nixpkgs-multiverse `{multiverse_tag}` for `{c['system']}`.",
+        "| system | executables | `name@version` | package versions | store paths |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for c in counts_by_system:
+        lines.append(
+            f"| `{c['system']}` | {c['names']:,} | {c['bins']:,} | "
+            f"{c['pkgs']:,} | {c['paths']:,} |"
+        )
+
+    first = counts_by_system[0]
+    total = sum(c["bytes"] for c in counts_by_system) / 1e12
+    lines += [
+        "",
+        f"{first['oldest']} to {first['newest']}, {total:,.1f} TB of unpacked bytes "
+        f"behind it, built from nixpkgs-multiverse `{tag}`.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def release_notes(dbs, counts_by_system, tag, multiverse_tag):
+    """The body of a data release, covering every system in the cut."""
+    systems = ", ".join(f"`{c['system']}`" for c in counts_by_system)
+    lines = [
+        "File listings crawled from cache.nixos.org, and the index built from them.",
+        "",
+        f"Built from nixpkgs-multiverse `{multiverse_tag}` for {systems}.",
         "",
         "## What is in this cut",
         "",
-        f"| | |",
-        f"| --- | --- |",
-        f"| executables on `PATH` | {c['names']:,} |",
-        f"| `name@version` forms | {c['bins']:,} |",
-        f"| package versions | {c['pkgs']:,} |",
-        f"| attributes | {c['attrs']:,} |",
-        f"| store paths addressable | {c['paths']:,} |",
-        f"| of those, with a published listing | {c['listed']:,} |",
-        f"| unpacked bytes behind them | {c['bytes'] / 1e12:,.1f} TB |",
-        f"| dates covered | {c['oldest']} to {c['newest']} |",
+        "| | " + " | ".join(f"`{c['system']}`" for c in counts_by_system) + " |",
+        "| --- |" + " --- |" * len(counts_by_system),
+    ]
+
+    rows = [
+        ("executables on `PATH`", lambda c: f"{c['names']:,}"),
+        ("`name@version` forms", lambda c: f"{c['bins']:,}"),
+        ("package versions", lambda c: f"{c['pkgs']:,}"),
+        ("attributes", lambda c: f"{c['attrs']:,}"),
+        ("store paths addressable", lambda c: f"{c['paths']:,}"),
+        ("of those, with a published listing", lambda c: f"{c['listed']:,}"),
+        ("unpacked bytes behind them", lambda c: f"{c['bytes'] / 1e12:,.1f} TB"),
+        ("dates covered", lambda c: f"{c['oldest']} to {c['newest']}"),
+    ]
+    for label, render in rows:
+        lines.append(
+            f"| {label} | " + " | ".join(render(c) for c in counts_by_system) + " |"
+        )
+
+    db, c = dbs[0], counts_by_system[0]
+    lines += [
         "",
-        "## Widest packages",
+        f"## Widest packages, on `{c['system']}`",
         "",
         "The packages shipping the most executables. TeX and Kaldi at the top is",
         "what a healthy run looks like.",
@@ -108,7 +129,7 @@ def release_notes(db, c, tag, multiverse_tag):
     lines += [f"| `{a}@{v}` | {n:,} |" for a, v, n in widest(db, 5)]
     lines += [
         "",
-        "## Most versioned names",
+        f"## Most versioned names, on `{c['system']}`",
         "",
         "| executable | versions |",
         "| --- | --- |",
@@ -130,7 +151,7 @@ def release_notes(db, c, tag, multiverse_tag):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", required=True)
+    ap.add_argument("--db", required=True, nargs="+", help="one database per system")
     ap.add_argument("--readme", action="store_true", help="rewrite README.md in place")
     ap.add_argument("--notes", action="store_true", help="print release notes")
     ap.add_argument("--tag", default="", help="the omnibin release tag being cut")
@@ -141,25 +162,25 @@ def main():
     )
     args = ap.parse_args()
 
-    db = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
-    c = counts(db)
+    dbs = [sqlite3.connect(f"file:{path}?mode=ro", uri=True) for path in args.db]
+    counts_by_system = sorted((counts(db) for db in dbs), key=lambda c: c["system"])
 
     multiverse_tag = args.multiverse_tag
     if not multiverse_tag:
-        tag_file = os.path.join(os.path.dirname(args.db), "multiverse", "TAG")
+        tag_file = os.path.join(os.path.dirname(args.db[0]), "multiverse", "TAG")
         multiverse_tag = (
             open(tag_file).read().strip() if os.path.exists(tag_file) else "unknown"
         )
 
     if args.notes:
-        print(release_notes(db, c, args.tag, multiverse_tag))
+        print(release_notes(dbs, counts_by_system, args.tag, multiverse_tag))
         return
 
     if not args.readme:
         sys.exit("status: pass --readme or --notes")
 
     readme = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(args.db))), "README.md"
+        os.path.dirname(os.path.dirname(os.path.abspath(args.db[0]))), "README.md"
     )
     text = open(readme).read()
     if BEGIN not in text or END not in text:
@@ -167,7 +188,9 @@ def main():
 
     head, rest = text.split(BEGIN, 1)
     _, tail = rest.split(END, 1)
-    open(readme, "w").write(head + BEGIN + readme_block(c, multiverse_tag) + END + tail)
+    open(readme, "w").write(
+        head + BEGIN + readme_block(counts_by_system, multiverse_tag) + END + tail
+    )
     print(f"{readme}: status block updated")
 
 

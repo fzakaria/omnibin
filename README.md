@@ -31,10 +31,12 @@ file inside it.
 
 <!-- BEGIN index-status -->
 
-- **51,468 executables** on `PATH`, over **253,817 package versions** of **23,590 attributes**
-- **881,933** `name@version` forms, addressing **619,915** store paths and 30.3 TB of unpacked bytes
-- 2012-07-05 to 2026-09-08, for `x86_64-linux`, built from nixpkgs-multiverse `data-20260924`
+| system          | executables | `name@version` | package versions | store paths |
+| --------------- | ----------- | -------------- | ---------------- | ----------- |
+| `aarch64-linux` | 47,672      | 791,946        | 224,246          | 624,477     |
+| `x86_64-linux`  | 51,468      | 881,933        | 253,817          | 619,915     |
 
+2012-07-05 to 2026-09-08, 60.8 TB of unpacked bytes behind it, built from nixpkgs-multiverse `data-20260924`.
 <!-- END index-status -->
 
 ## Why

@@ -24,18 +24,24 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DATA="$ROOT/data"
 TAG="${1:-data-$(date -u +%Y%m%d)}"
 REPO="fzakaria/omnibin"
-SYSTEM="${OMNIBIN_SYSTEM:-x86_64-linux}"
+# Every system that has been built, rather than one named here. A system is
+# published when its database exists, and the flake serves whichever systems
+# the pins name.
+DBS=()
+for f in "$DATA"/omnibin-*.db; do
+  [ -f "$f" ] && DBS+=("$f")
+done
 
-DB="$DATA/omnibin-$SYSTEM.db"
-if [ ! -f "$DB" ]; then
-  echo "cut-data-release: no $DB; run tools/build-index.py first" >&2
+if [ ${#DBS[@]} -eq 0 ]; then
+  echo "cut-data-release: no $DATA/omnibin-*.db; run tools/build-index.py first" >&2
   exit 1
 fi
 
-# The database first, because it is what the flake needs and what a consumer
-# cannot reconstruct without a full crawl. Then the raw crawl behind it.
-CANDIDATES=("$DB")
-for f in "$DATA"/narinfos.jsonl.zst "$DATA"/listings/listings-*.jsonl.zst; do
+# The databases first, because they are what the flake needs and what a
+# consumer cannot reconstruct without a full crawl. Then the raw crawl behind
+# them.
+CANDIDATES=("${DBS[@]}")
+for f in "$DATA"/narinfos*.jsonl.zst "$DATA"/listings/listings-*.jsonl.zst; do
   [ -f "$f" ] && CANDIDATES+=("$f")
 done
 
@@ -67,7 +73,7 @@ echo "cut-data-release: $TAG, uploading ${#CHANGED[@]} of ${#CANDIDATES[@]} arti
 # numbers on the release and the numbers in the README come from one place.
 NOTES=$(mktemp)
 trap 'rm -f "$NOTES"' EXIT
-python3 "$HERE/status.py" --db "$DB" --notes --tag "$TAG" > "$NOTES"
+python3 "$HERE/status.py" --db "${DBS[@]}" --notes --tag "$TAG" > "$NOTES"
 
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
   gh release edit "$TAG" --repo "$REPO" --notes-file "$NOTES"

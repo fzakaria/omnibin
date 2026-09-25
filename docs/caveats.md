@@ -14,10 +14,15 @@ liveness weekly, and omnibin only advertises paths it found alive. The tail
 thins out going back in time, and a 2013 binary that does substitute may still
 fail to run on a modern kernel.
 
-**One system per database.** A store path belongs to one system. The database
-is built for one, and `x86_64-linux` is the one that has real coverage;
-`aarch64-linux` is thinner, and darwin has no lazy store here at all because
-there is no FUSE-over-`/nix/store` story on it worth having.
+**One database per system.** A store path belongs to one system, so each
+system gets its own database and the flake serves the one matching yours.
+`x86_64-linux` and `aarch64-linux` are both published. Darwin is not, and will
+not be: the store paths exist, but there is no FUSE-over-`/nix/store` story on
+macOS worth having.
+
+aarch64 is slightly smaller than x86_64 rather than an afterthought: 47,672
+executables against 51,468, over 224,246 package versions against 253,817. The
+gap is packages Hydra never built for it.
 
 **`ls /nix/store` lies by omission.** It lists what has been fetched. The
 index is how you enumerate.

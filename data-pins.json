@@ -1,8 +1,28 @@
 {
  "baseUrl": "https://github.com/fzakaria/omnibin/releases/download",
  "files": {
+  "listings-20260925-000.jsonl.zst": {
+   "narHash": "sha256-Z5HGk03zCIwFrfYtKQcm6gBkGCpfsnyhR9GAP3gCY6M=",
+   "tag": "data-20260925"
+  },
+  "listings-20260925-001.jsonl.zst": {
+   "narHash": "sha256-y4Unf4+nVv2z4ZSJCTz/d0S90uUqx368YO5zGxcVFNA=",
+   "tag": "data-20260925"
+  },
+  "listings-20260925-002.jsonl.zst": {
+   "narHash": "sha256-xNYT4ra6zNbDDHprZaFZ+6w3uKAWfCBX053CQcQ67Gg=",
+   "tag": "data-20260925"
+  },
+  "narinfos-aarch64.jsonl.zst": {
+   "narHash": "sha256-9A6se1tUAHsCs4iZ/r7GeaUl2Zzo+QTAT/KJ6pW71M0=",
+   "tag": "data-20260925"
+  },
   "narinfos.jsonl.zst": {
    "narHash": "sha256-2FXd+ydfsV4Pp79XeatXoeWAmh3TJOfYhXHphqOOq+o=",
+   "tag": "data-20260925"
+  },
+  "omnibin-aarch64-linux.db": {
+   "narHash": "sha256-9PAVt97DuHJ3uWFigTrgY8/dBAE5685U+kQKtSlCQAQ=",
    "tag": "data-20260925"
   },
   "omnibin-x86_64-linux.db": {

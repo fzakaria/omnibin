@@ -4,13 +4,18 @@
 A file listing is content-addressed: the listing for a digest describes bytes
 that cannot change, so a shard that has been published is correct forever.
 Shards are therefore cut by crawl generation rather than by content. Each run
-writes only the digests nobody has published before, into files named for the
-day they were crawled, and every earlier shard hashes identically to its pin
-and is never uploaded again.
+writes what it was given into files named for the day, and every earlier shard
+hashes identically to its pin and is never uploaded again.
 
-That is the whole delta mechanism. There is no merging, no rewriting and no
-cross-file invariant to get wrong; a consumer reads every shard and the union
-is the artifact.
+Deciding what is new is the crawl's job, not this script's: crawl-listings.py
+takes --have and skips digests an earlier crawl already answered for. Scanning
+the published shards again here would re-read the whole archive on every run,
+which grows without bound, to re-derive something the caller already knew. A
+duplicate that slips through costs a few kilobytes and nothing else, because
+build-index.py keys on the digest.
+
+There is no merging, no rewriting and no cross-file invariant to get wrong; a
+consumer reads every shard and the union is the artifact.
 
 Parts are capped because a GitHub release asset may not exceed 2 GB.
 
@@ -35,23 +40,6 @@ DEFAULT_MAX_PART_BYTES = 1_000_000_000
 # twenty five gigabytes of JSON costs hours for a few percent, so this sits at
 # the point where the curve flattens.
 SHARD_LEVEL = 10
-
-
-def published_digests(out_dir):
-    """Every digest already covered by a shard in out_dir.
-
-    Read from the shards themselves rather than a side file that could
-    disagree with them: the shards are the record of what has been published.
-    """
-    digests = set()
-    for shard in sorted(out_dir.glob("listings-*.jsonl.zst")):
-        zstd = subprocess.Popen(["zstd", "-dc", str(shard)], stdout=subprocess.PIPE)
-        for line in zstd.stdout:
-            digests.add(json.loads(line)["d"])
-        if zstd.wait() != 0:
-            sys.exit(f"shard-listings: zstd failed reading {shard}")
-
-    return digests
 
 
 class PartWriter:
@@ -117,9 +105,6 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    already = published_digests(out_dir)
-    print(f"{len(already)} digests already published", file=sys.stderr)
-
     writer = PartWriter(out_dir, args.generation, args.max_part_bytes)
     kept = skipped = 0
 
@@ -131,15 +116,11 @@ def main():
             # A digest somebody already published is not written again, and
             # neither is one the crawl could not get a usable listing for:
             # absence is recoverable by re-crawling, a wrong row is not.
-            if record["d"] in already:
-                skipped += 1
-                continue
             if not record.get("ok"):
                 skipped += 1
                 continue
 
             writer.write(line)
-            already.add(record["d"])
             kept += 1
 
         if zstd.wait() != 0:

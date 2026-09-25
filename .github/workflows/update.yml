@@ -28,6 +28,12 @@ concurrency:
 permissions:
   contents: write
 
+# Every system published. A store path belongs to one, so each gets its own
+# crawl and its own database, and the flake serves whichever matches the
+# machine asking.
+env:
+  SYSTEMS: "x86_64-linux aarch64-linux"
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -51,9 +57,14 @@ jobs:
           df -h /
 
       # outpaths, the sibling output map and the narinfo graph, from
-      # multiverse's newest dated release rather than from a checkout.
+      # multiverse's newest dated release rather than from a checkout. The
+      # narinfo shards are keyed by digest and describe every system, so only
+      # the per system files are fetched twice.
       - name: fetch multiverse artifacts
-        run: nix develop --command tools/fetch-multiverse.sh
+        run: |
+          for system in $SYSTEMS; do
+            OMNIBIN_SYSTEM=$system nix develop --command tools/fetch-multiverse.sh
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -62,38 +73,46 @@ jobs:
       - name: fetch published data
         run: nix develop --command tools/fetch-data.sh
 
+      # One crawl per system. A store path belongs to one system, so the two
+      # share almost no digests, and --have keeps each run to what is new.
       - name: crawl what is new
         run: |
-          nix develop --command tools/crawl-listings.py \
-            --outpaths data/multiverse/outpaths-x86_64-linux.json \
-            --have data/listings/*.jsonl.zst \
-            --out data/listings-new.jsonl.zst --jobs 64
+          for system in $SYSTEMS; do
+            nix develop --command tools/crawl-listings.py \
+              --outpaths data/multiverse/outpaths-$system.json \
+              --have data/listings/*.jsonl.zst \
+              --out data/listings-new-$system.jsonl.zst --jobs 64
+          done
 
       # A package that splits its binaries into a separate `bin` output is not
       # in any closure the multiverse graph walked, so those paths need both a
       # listing and a narinfo of their own.
       - name: crawl separated bin outputs
         run: |
-          nix develop --command python3 - <<'PY'
-          import json
-          outs = json.load(open("data/multiverse/outs-x86_64-linux.json"))
-          op = json.load(open("data/multiverse/outpaths-x86_64-linux.json"))
+          for system in $SYSTEMS; do
+            nix develop --command python3 - "$system" <<'PY'
+          import json, sys
+          system = sys.argv[1]
+          outs = json.load(open(f"data/multiverse/outs-{system}.json"))
+          op = json.load(open(f"data/multiverse/outpaths-{system}.json"))
           digests = {e[0] for vs in op["attrs"].values() for e in vs.values()}
           bins = {outs[d]["bin"] for d in digests if d in outs and "bin" in outs[d]}
-          open("data/bin-outputs.txt", "w").write("\n".join(sorted(bins)))
-          print(f"{len(bins)} separated bin outputs")
+          open(f"data/bin-outputs-{system}.txt", "w").write("\n".join(sorted(bins)))
+          print(f"{system}: {len(bins)} separated bin outputs")
           PY
-          nix develop --command tools/crawl-listings.py \
-            --digests data/bin-outputs.txt \
-            --have data/listings/*.jsonl.zst data/listings-new.jsonl.zst \
-            --out data/listings-binouts.jsonl.zst --jobs 64
-          nix develop --command tools/crawl-narinfos.py \
-            --digests data/bin-outputs.txt --out data/narinfos.jsonl.zst --jobs 64
+            nix develop --command tools/crawl-listings.py \
+              --digests data/bin-outputs-$system.txt \
+              --have data/listings/*.jsonl.zst data/listings-new-$system.jsonl.zst \
+              --out data/listings-binouts-$system.jsonl.zst --jobs 64
+            nix develop --command tools/crawl-narinfos.py \
+              --digests data/bin-outputs-$system.txt \
+              --out data/narinfos-$system.jsonl.zst --jobs 64
+          done
 
       - name: shard the new listings
         run: |
           nix develop --command tools/shard-listings.py \
-            --in data/listings-new.jsonl.zst data/listings-binouts.jsonl.zst \
+            --in data/listings-new-*.jsonl.zst data/listings-binouts-*.jsonl.zst \
             --out-dir data/listings --generation "$(date -u +%Y%m%d)"
 
       # The index rides on multiverse's revision and version tables, which are
@@ -101,16 +120,18 @@ jobs:
       - name: rebuild the index
         run: |
           git clone --depth 1 https://github.com/fzakaria/nixpkgs-multiverse /tmp/multiverse
-          nix develop --command tools/build-index.py \
-            --listings data/listings/*.jsonl.zst \
-            --narinfos data/narinfos.jsonl.zst \
-            --outpaths data/multiverse/outpaths-x86_64-linux.json \
-            --outs data/multiverse/outs-x86_64-linux.json \
-            --info-indexed data/multiverse \
-            --versions /tmp/multiverse/index/versions.json \
-            --revisions /tmp/multiverse/revisions.json \
-            --system x86_64-linux \
-            --out data/omnibin-x86_64-linux.db
+          for system in $SYSTEMS; do
+            nix develop --command tools/build-index.py \
+              --listings data/listings/*.jsonl.zst \
+              --narinfos data/narinfos-*.jsonl.zst \
+              --outpaths data/multiverse/outpaths-$system.json \
+              --outs data/multiverse/outs-$system.json \
+              --info-indexed data/multiverse \
+              --versions /tmp/multiverse/index/versions.json \
+              --revisions /tmp/multiverse/revisions.json \
+              --system $system \
+              --out data/omnibin-$system.db
+          done
 
       - name: cut the release
         run: nix develop --command tools/cut-data-release.sh
@@ -118,7 +139,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: update the status block
-        run: nix develop --command tools/status.py --db data/omnibin-x86_64-linux.db --readme
+        run: nix develop --command tools/status.py --db data/omnibin-*.db --readme
 
       # data-pins.json is the only thing in the flake tree that knows where the
       # data lives, so it and the status block are the whole commit.
