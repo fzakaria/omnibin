@@ -1,6 +1,6 @@
 //! `/omnibin`: the part a person or an agent reads.
 //!
-//! One flat directory of executables. `ls` shows the bare names — one per
+//! One flat directory of executables. `ls` shows the bare names, one per
 //! executable anybody ever shipped, each resolving to the newest package that
 //! provides it. The versioned forms resolve too but are deliberately not
 //! listed: there are over a million of them, and a directory nobody can read
@@ -43,8 +43,8 @@ Every executable nixpkgs ever shipped is in ./bin.
   ./bin/<name>            the newest package that provides <name>
   ./bin/<name>@<version>  that executable at that exact version
 
-`ls ./bin` lists the bare names. The versioned forms are NOT listed — there
-are over a million — but they resolve:
+`ls ./bin` lists the bare names. The versioned forms are NOT listed, because
+there are over eight hundred thousand, but they resolve:
 
   ./bin/python3@3.6.2
   ./bin/gcc@4.9.4
@@ -78,7 +78,7 @@ pub struct TreeFs {
     next_ino: u64,
 
     /// Every bare name, read once. The kernel asks for a directory in reply
-    /// buffer sized chunks — hundreds of calls for a directory this size — and
+    /// buffer sized chunks, hundreds of calls for a directory this size, and
     /// re-running the query for each of them is quadratic in the number of
     /// names, which at 35,940 is slow enough to look like a hang.
     names: Option<Vec<String>>,

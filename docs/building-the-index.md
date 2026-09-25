@@ -27,15 +27,15 @@ a listing is per path: 250,622 pairs over 233,197 distinct digests.
 
 Three things it records rather than hides:
 
-- **not in cache** — the digest has no `.ls`, which tracks the narinfo being
+- **not in cache**, meaning the digest has no `.ls`, which tracks the narinfo being
   gone. Written as `ok: false`, because absence is an answer and re-deriving
   it costs another request.
-- **malformed** — the published object decompresses to broken JSON. 725 of
+- **malformed**, meaning the published object decompresses to broken JSON. 725 of
   233,197, or 0.31%. This is a defect in the bytes on the cache, not in the
   decoder: `curl --compressed` reproduces the same gap, so the JSON is
   genuinely truncated mid-token on the way out of the brotli stream. Recorded
   the same way as absent; the filesystem falls back to fetching the path.
-- **unreachable** — nothing answered after four attempts. A non-zero count
+- **unreachable**, meaning nothing answered after four attempts. A non-zero count
   fails the run; re-crawl.
 
 The output is JSON Lines, one object per store path:
@@ -69,7 +69,7 @@ $ tools/build-index.py \
 ```
 
 `info-indexed` is where the store path names, NAR URLs and sizes come from, so
-the filesystem never has to fetch a narinfo at runtime — it already knows what
+the filesystem never has to fetch a narinfo at runtime. It already knows what
 to GET and how big it is. `outpaths` is the `(attribute, version) → digest`
 map. `versions` and `revisions` supply the last-seen date that decides which
 package a bare name resolves to.

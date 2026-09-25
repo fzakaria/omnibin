@@ -152,6 +152,24 @@ class Fetcher:
         return 200, decode(body, resp.getheader("Content-Encoding", "identity"))
 
 
+def already_crawled(paths):
+    """Every digest an existing crawl file already answered for.
+
+    A listing is content addressed, so one that has been fetched is correct
+    forever and there is no reason to fetch it twice. This is what turns a
+    daily run from a 233,000 request crawl into a 3,000 request one.
+    """
+    seen = set()
+    for path in paths:
+        zstd = subprocess.Popen(["zstd", "-dc", path], stdout=subprocess.PIPE)
+        for line in zstd.stdout:
+            seen.add(json.loads(line)["d"])
+        if zstd.wait() != 0:
+            sys.exit(f"crawl-listings: zstd failed reading {path}")
+
+    return seen
+
+
 def read_digests(args):
     """The digests to crawl, from a multiverse outpaths artifact or a flat list.
 
@@ -202,7 +220,7 @@ def crawl(digests, out, jobs):
                 return {"d": digest, "ok": False}
 
             # A small number of published listings decompress to malformed
-            # JSON — the bytes on the cache are damaged, and curl's own brotli
+            # JSON. The bytes on the cache are damaged, and curl's own brotli
             # reproduces the same gap, so this is not a decoder bug. Record the
             # digest as answered-but-unusable rather than aborting the crawl.
             try:
@@ -255,13 +273,29 @@ def main():
     )
     source.add_argument("--digests", help="file of digests, one per line")
     ap.add_argument("--out", required=True, help="output listings.jsonl.zst")
+    ap.add_argument(
+        "--have",
+        nargs="+",
+        default=[],
+        help="existing listings files whose digests should not be fetched again",
+    )
     ap.add_argument("--jobs", type=int, default=64, help="concurrent requests")
     ap.add_argument("--limit", type=int, help="crawl only the first N digests")
     args = ap.parse_args()
 
     digests = read_digests(args)
+
+    if args.have:
+        seen = already_crawled(args.have)
+        digests = [d for d in digests if d not in seen]
+        print(f"skipping {len(seen)} digests already crawled", file=sys.stderr)
+
     if args.limit:
         digests = digests[: args.limit]
+
+    if not digests:
+        print("crawl-listings: nothing new to crawl", file=sys.stderr)
+        return
     print(f"crawling {len(digests)} listings with {args.jobs} workers", file=sys.stderr)
 
     # zstd as a subprocess rather than in-process: the writer is the one thing

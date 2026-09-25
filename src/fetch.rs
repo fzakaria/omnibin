@@ -141,8 +141,8 @@ impl Fetcher {
         let copied = pump.join().expect("pump thread panicked");
         let status = child.wait()?;
 
-        // The unpack error is the useful one — a decompressor that failed
-        // usually did so because the transfer did — so it is reported first.
+        // The unpack error is the useful one, because a decompressor that
+        // failed usually did so because the transfer did, so it goes first.
         unpacked?;
         copied.context("streaming the NAR into the decompressor")?;
         if !status.success() {
@@ -167,7 +167,7 @@ impl Fetcher {
     ///
     /// The index is an optimisation, not a gate. It holds the paths the
     /// multiverse crawl knew about, which is every indexed package and most of
-    /// what they depend on — but "most" is not "all", and a closure member the
+    /// what they depend on, but "most" is not "all", and a closure member the
     /// index missed would otherwise make a package that substitutes fine
     /// refuse to run. One narinfo answers the question for any path the cache
     /// still holds, indexed or not.

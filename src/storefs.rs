@@ -1,7 +1,8 @@
 //! The lazy `/nix/store`.
 //!
-//! Every store path the index knows about is present here. Looking at one —
-//! `stat`, `ls`, following a symlink — is answered from the file listing and
+//! Every store path the index knows about is present here. Looking at one,
+//! whether by `stat`, `ls`, or following a symlink, is answered from the
+//! published file listing and
 //! costs no transfer. Reading a file's contents is what fetches the path's
 //! NAR, once, after which the path is served from the unpacked copy like any
 //! other directory.
@@ -9,7 +10,7 @@
 //! A host that already has a real `/nix/store` keeps it: paths present in the
 //! passthrough directory are served from there and never fetched. That is
 //! what makes it safe to mount this over the real store inside a mount
-//! namespace — locally built paths, and paths from a private cache, still
+//! namespace, because locally built paths, and paths from a private cache, still
 //! resolve.
 
 use fuser::{
@@ -132,7 +133,7 @@ impl StoreFs {
         }
     }
 
-    /// The real path only if it is already on disk — no fetch.
+    /// The real path only if it is already on disk, with no fetch.
     fn materialized_path(&self, node: &Node) -> Option<PathBuf> {
         match &node.source {
             Source::Passthrough(base) => Some(base.join(&node.rel)),

@@ -1,0 +1,135 @@
+# Follows nixpkgs-multiverse and republishes the index when it moves.
+#
+# A cut of multiverse names store paths omnibin has never seen, and each one
+# needs its file listing before its commands can appear on PATH. The run
+# fetches multiverse's artifacts, crawls only the digests no published shard
+# already holds, rebuilds the database and cuts a release.
+#
+# The work is delta sized. A day of nixpkgs is a few thousand new store paths,
+# which is a one minute crawl; the first full crawl was 233,000 paths and
+# twelve minutes, and that one is not done here.
+#
+# The rebuild reads every published listing, which is a few gigabytes of
+# download and the reason this runs daily rather than hourly. A runner that
+# cannot hold that is a signal to move this to a machine that can: the same
+# commands work anywhere, and docs/building-the-index.md walks through them.
+name: update
+
+on:
+  schedule:
+    # Once a day, after multiverse's own daily cut has had time to land.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      # A runner ships with tens of gigabytes of toolchains this job never
+      # uses, and the listings need the room.
+      - name: free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      # outpaths, the sibling output map and the narinfo graph, from
+      # multiverse's newest dated release rather than from a checkout.
+      - name: fetch multiverse artifacts
+        run: nix develop --command tools/fetch-multiverse.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Everything omnibin has already published, so the crawl below knows
+      # what it can skip and the rebuild sees the whole history.
+      - name: fetch published data
+        run: nix develop --command tools/fetch-data.sh
+
+      - name: crawl what is new
+        run: |
+          nix develop --command tools/crawl-listings.py \
+            --outpaths data/multiverse/outpaths-x86_64-linux.json \
+            --have data/listings/*.jsonl.zst \
+            --out data/listings-new.jsonl.zst --jobs 64
+
+      # A package that splits its binaries into a separate `bin` output is not
+      # in any closure the multiverse graph walked, so those paths need both a
+      # listing and a narinfo of their own.
+      - name: crawl separated bin outputs
+        run: |
+          nix develop --command python3 - <<'PY'
+          import json
+          outs = json.load(open("data/multiverse/outs-x86_64-linux.json"))
+          op = json.load(open("data/multiverse/outpaths-x86_64-linux.json"))
+          digests = {e[0] for vs in op["attrs"].values() for e in vs.values()}
+          bins = {outs[d]["bin"] for d in digests if d in outs and "bin" in outs[d]}
+          open("data/bin-outputs.txt", "w").write("\n".join(sorted(bins)))
+          print(f"{len(bins)} separated bin outputs")
+          PY
+          nix develop --command tools/crawl-listings.py \
+            --digests data/bin-outputs.txt \
+            --have data/listings/*.jsonl.zst data/listings-new.jsonl.zst \
+            --out data/listings-binouts.jsonl.zst --jobs 64
+          nix develop --command tools/crawl-narinfos.py \
+            --digests data/bin-outputs.txt --out data/narinfos.jsonl.zst --jobs 64
+
+      - name: shard the new listings
+        run: |
+          nix develop --command tools/shard-listings.py \
+            --in data/listings-new.jsonl.zst data/listings-binouts.jsonl.zst \
+            --out-dir data/listings --generation "$(date -u +%Y%m%d)"
+
+      # The index rides on multiverse's revision and version tables, which are
+      # in its repository rather than its release.
+      - name: rebuild the index
+        run: |
+          git clone --depth 1 https://github.com/fzakaria/nixpkgs-multiverse /tmp/multiverse
+          nix develop --command tools/build-index.py \
+            --listings data/listings/*.jsonl.zst \
+            --narinfos data/narinfos.jsonl.zst \
+            --outpaths data/multiverse/outpaths-x86_64-linux.json \
+            --outs data/multiverse/outs-x86_64-linux.json \
+            --info-indexed data/multiverse \
+            --versions /tmp/multiverse/index/versions.json \
+            --revisions /tmp/multiverse/revisions.json \
+            --system x86_64-linux \
+            --out data/omnibin-x86_64-linux.db
+
+      - name: cut the release
+        run: nix develop --command tools/cut-data-release.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: update the status block
+        run: nix develop --command tools/status.py --db data/omnibin-x86_64-linux.db --readme
+
+      # data-pins.json is the only thing in the flake tree that knows where the
+      # data lives, so it and the status block are the whole commit.
+      - name: commit
+        run: |
+          if git diff --quiet data-pins.json README.md; then
+            echo "nothing moved"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data-pins.json README.md
+          git commit -m "Index through $(date -u +%Y-%m-%d)"
+          git push

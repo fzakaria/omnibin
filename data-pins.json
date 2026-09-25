@@ -1,5 +1,14 @@
 {
  "baseUrl": "https://github.com/fzakaria/omnibin/releases/download",
- "files": {},
+ "files": {
+  "narinfos.jsonl.zst": {
+   "narHash": "sha256-2FXd+ydfsV4Pp79XeatXoeWAmh3TJOfYhXHphqOOq+o=",
+   "tag": "data-20260925"
+  },
+  "omnibin-x86_64-linux.db": {
+   "narHash": "sha256-A1wd5E4FTkYDGHghAmNDBo3n9qn6gXEYAnyKddb2dKA=",
+   "tag": "data-20260925"
+  }
+ },
  "version": 1
 }

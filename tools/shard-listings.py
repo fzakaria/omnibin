@@ -3,7 +3,7 @@
 
 A file listing is content-addressed: the listing for a digest describes bytes
 that cannot change, so a shard that has been published is correct forever.
-Shards are therefore cut by crawl generation rather than by content — each run
+Shards are therefore cut by crawl generation rather than by content. Each run
 writes only the digests nobody has published before, into files named for the
 day they were crawled, and every earlier shard hashes identically to its pin
 and is never uploaded again.
@@ -31,8 +31,10 @@ DEFAULT_MAX_PART_BYTES = 1_000_000_000
 
 # Compression level for the published shards. The crawl writes at zstd's
 # default because it has to keep up with the network; the shards are written
-# once and downloaded many times, so they are worth the slower pass.
-SHARD_LEVEL = 19
+# once and downloaded many times, so they are worth a slower pass. Level 19 on
+# twenty five gigabytes of JSON costs hours for a few percent, so this sits at
+# the point where the curve flattens.
+SHARD_LEVEL = 10
 
 
 def published_digests(out_dir):
@@ -98,7 +100,13 @@ class PartWriter:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--in", dest="source", required=True, help="listings.jsonl.zst")
+    ap.add_argument(
+        "--in",
+        dest="sources",
+        required=True,
+        nargs="+",
+        help="listings files to publish, the first crawl and every delta since",
+    )
     ap.add_argument("--out-dir", required=True, help="directory of published shards")
     ap.add_argument(
         "--generation", required=True, help="tag for this cut, e.g. 20260924"
@@ -115,25 +123,28 @@ def main():
     writer = PartWriter(out_dir, args.generation, args.max_part_bytes)
     kept = skipped = 0
 
-    zstd = subprocess.Popen(["zstd", "-dc", args.source], stdout=subprocess.PIPE)
-    for line in zstd.stdout:
-        record = json.loads(line)
+    for source in args.sources:
+        zstd = subprocess.Popen(["zstd", "-dc", source], stdout=subprocess.PIPE)
+        for line in zstd.stdout:
+            record = json.loads(line)
 
-        # A digest somebody already published is not written again, and neither
-        # is one the crawl could not get a usable listing for: absence is
-        # recoverable by re-crawling, a wrong row is not.
-        if record["d"] in already:
-            skipped += 1
-            continue
-        if not record.get("ok"):
-            skipped += 1
-            continue
+            # A digest somebody already published is not written again, and
+            # neither is one the crawl could not get a usable listing for:
+            # absence is recoverable by re-crawling, a wrong row is not.
+            if record["d"] in already:
+                skipped += 1
+                continue
+            if not record.get("ok"):
+                skipped += 1
+                continue
 
-        writer.write(line)
-        kept += 1
+            writer.write(line)
+            already.add(record["d"])
+            kept += 1
 
-    if zstd.wait() != 0:
-        sys.exit(f"shard-listings: zstd failed reading {args.source}")
+        if zstd.wait() != 0:
+            sys.exit(f"shard-listings: zstd failed reading {source}")
+
     writer.close()
 
     for path in writer.written:

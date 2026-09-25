@@ -102,7 +102,7 @@ pub fn unpack<R: Read>(stream: R, dest: &Path) -> Result<()> {
     node(&mut reader, dest)
 }
 
-/// Read one node — a regular file, a symlink or a directory — at `dest`.
+/// Read one node at `dest`, being a regular file, a symlink or a directory.
 fn node<R: Read>(r: &mut Reader<R>, dest: &Path) -> Result<()> {
     r.expect("(")?;
     r.expect("type")?;

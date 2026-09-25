@@ -62,8 +62,8 @@ restarts it.
 
 The real store is bind-mounted to `/run/omnibin/real-store` before the lazy
 one goes over it, and every lookup checks it first. That is what keeps the
-machine bootable — the kernel, systemd and omnibin itself are served from the
-files that were already there and are never fetched.
+machine bootable. The kernel, systemd and omnibin itself are served from the
+files that were already there, and are never fetched.
 
 Options:
 
@@ -76,7 +76,7 @@ Options:
 
 `mountStore = false` serves the tree without touching `/nix/store`. The
 symlinks in it are absolute, so they resolve only for packages the machine
-already has — useful for reading the index, not for running anything new.
+already has. It is useful for reading the index, not for running anything new.
 
 ## The VM
 
@@ -109,7 +109,7 @@ store is mounted straight at `/nix/store` with no passthrough.
 ```
 
 `ls /omnibin/bin` lists the 35,940 bare names only. The versioned forms
-resolve on lookup and are not listed — there are 350,084 of them.
+resolve on lookup and are not listed, because there are 881,933 of them.
 
 A bare name resolves by four rules, the first that separates two candidates
 winning: an attribute named after the executable beats one that is not, a
@@ -140,7 +140,7 @@ python3@3.12.4-env  jupyter  0.8 MB  /nix/store/xcvryj…-python3-3.12.4-env/bin
 ```
 
 416 packages have shipped something called `python3`, and most of them are not
-CPython — a `jupyter` environment ships one too, which is why `@version` is a
+CPython. A `jupyter` environment ships one too, which is why `@version` is a
 version of the package rather than of the interpreter. The size is what
 running that one costs the first time.
 

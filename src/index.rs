@@ -54,8 +54,8 @@ impl Index {
     /// The store path a `<digest>-<name>` basename refers to.
     ///
     /// Only the digest is matched. The name after it is what the cache says
-    /// the path is called, and a caller that guessed it wrong — a stale
-    /// symlink, a hand-typed path — still gets the right bytes, because in a
+    /// the path is called, and a caller that guessed it wrong, whether from a
+    /// stale symlink or a typo, still gets the right bytes, because in a
     /// content-addressed store the digest is the whole identity.
     pub fn path_by_base_name(&self, base_name: &str) -> Result<Option<StorePath>> {
         if base_name.len() < DIGEST_LEN {
@@ -109,8 +109,8 @@ impl Index {
 
     /// What `<name>@<version>` resolves to.
     ///
-    /// Two packages can ship the same executable at the same version —
-    /// `curl` and `curlWithGnuTls` both have a `curl` 8.10.1 — so the same
+    /// Two packages can ship the same executable at the same version, and
+    /// `curl` and `curlWithGnuTls` both have a `curl` 8.10.1, so the same
     /// precedence the bare name uses settles it: the attribute named after the
     /// executable first, then the shorter attribute, then the alphabet.
     pub fn bin_at_version(&self, name: &str, version: &str) -> Result<Option<Bin>> {

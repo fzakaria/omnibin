@@ -24,8 +24,8 @@ index is how you enumerate.
 
 **Bare names are a policy, not a fact.** `python3` resolving to the `python3`
 attribute's newest build is a rule this project chose. Two packages can ship
-the same executable at the same version — `curl` and `curlWithGnuTls` both
-have a `curl` 8.10.1 — and `<name>@<version>` picks between them by the same
+the same executable at the same version. `curl` and `curlWithGnuTls` both
+have a `curl` 8.10.1, and `<name>@<version>` picks between them by the same
 rule. When it matters, go through `/nix/store` directly.
 
 **Nix inside will not work.** The lazy store is a filesystem, not a registered

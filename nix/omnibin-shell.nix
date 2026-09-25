@@ -9,8 +9,8 @@
 # whose own libraries live in /nix/store; serving /nix/store from inside the
 # namespace means a page fault on one of them is answered by a thread blocked
 # on that same fault, and the whole namespace hangs. Mounting over a live
-# store from within is possible — the NixOS module does it, as root, with
-# mlockall — but it is not worth needing privileges for here.
+# store from within is possible, and the NixOS module does it as root with
+# mlockall, but it is not worth needing privileges for here.
 #
 # So: the daemon serves a neutral mountpoint in the host's namespace, where
 # /nix/store is still the real one and nothing can recurse, and the namespace
@@ -61,7 +61,7 @@ pkgs.writeShellApplication {
     mkdir -p "$OMNIBIN_CACHE"
 
     # A previous run that was killed rather than exited leaves its mounts
-    # behind, and a stale FUSE mountpoint refuses even stat() — so mounting
+    # behind, and a stale FUSE mountpoint refuses even stat(), so mounting
     # over it fails with a permission error that has nothing to do with
     # permissions. Clear them before making the directories.
     for stale in "$OMNIBIN_TREE" "$OMNIBIN_STORE"; do

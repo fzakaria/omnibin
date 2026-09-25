@@ -137,8 +137,8 @@ fn mount(
     // Serving /nix/store means this process's own libraries are behind the
     // mount it is servicing. A page fault on one of them would be answered by
     // a thread that is blocked on that same fault, which is a deadlock with no
-    // way out. Pinning every page — the ones mapped now and the ones mapped
-    // later — is what makes it safe to mount over a live store.
+    // way out. Pinning every page, the ones mapped now and the ones mapped
+    // later, is what makes it safe to mount over a live store.
     if store == PathBuf::from(NIX_STORE) {
         lock_memory()?;
     }

@@ -1,6 +1,6 @@
 # The NixOS module: mount omnibin at boot.
 #
-# This is the shape for a machine that exists to have every package — a VM, a
+# This is the shape for a machine that exists to have every package: a VM, a
 # container, a throwaway box an agent works in. It replaces /nix/store with the
 # lazy store for the whole system, which is exactly what you want there and is
 # not what you want on your laptop. On a machine you care about, use
@@ -8,7 +8,7 @@
 # with the shell.
 #
 # The passthrough bind is what keeps the system bootable. Every path the host
-# already has — the kernel, systemd, this very service's own binary — is served
+# already has, the kernel and systemd and this service's own binary, is served
 # from the real store and never fetched, so the system does not depend on the
 # network to run the software it already has.
 {

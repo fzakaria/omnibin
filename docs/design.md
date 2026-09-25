@@ -3,8 +3,8 @@
 ## The store is two halves
 
 A Nix store path is metadata and bytes, and they have wildly different costs.
-The metadata — what files exist, how big they are, which are executable, where
-the symlinks point — is a few kilobytes. The bytes are anything from 20 KB to
+The metadata, being what files exist, how big they are, which are executable
+and where the symlinks point, is a few kilobytes. The bytes are anything from 20 KB to
 a gigabyte.
 
 Almost everything a filesystem is asked is metadata. `stat`, `ls`, resolving a
@@ -25,8 +25,8 @@ NAR listing as JSON:
 Measured over a random sample of 400 indexed paths: about 9 KB compressed, 78
 KB of JSON, 1,635 entries per path. It is served with
 `Content-Encoding: br` for older objects and `zstd` for newer ones, and it
-exists for exactly the paths the narinfo exists for — 225,671 of the 233,197
-store paths the index names, with 6,801 gone from the cache entirely.
+exists for exactly the paths the narinfo exists for. That is 233,694 of the
+236,236 store paths the index names, with the rest gone from the cache.
 
 That is the entire metadata layer of thirteen years of nixpkgs, already
 hosted. Crawling all of it took 11.7 minutes and produced 3.7 GB.
@@ -36,8 +36,8 @@ hosted. Crawling all of it took 11.7 minutes and produced 3.7 GB.
 Partly, and less than it sounds, and the reason is worth writing down.
 
 92.6% of published listings already carry a `narOffset` for every regular
-file — the byte position of that file's contents inside the uncompressed NAR,
-measured over the same 400-path sample.
+file, being the byte position of that file's contents inside the uncompressed
+NAR, measured over the same 400-path sample.
 The index nixbuild.net builds for its own storage is, for most paths, already
 public.
 
@@ -49,9 +49,9 @@ a package. Indexing every NAR ourselves would not change that; it would
 reproduce information the cache mostly publishes and still leave the bytes
 unreachable.
 
-Random access to individual files needs storage we control — re-hosted,
-chunked, or stored uncompressed — and that is tens of terabytes of NARs. It
-is a real project and it is not this one. omnibin fetches at path granularity,
+Random access to individual files needs storage we control, whether re-hosted,
+chunked, or stored uncompressed, and that is tens of terabytes of NARs. It is
+a real project and it is not this one. omnibin fetches at path granularity,
 which is the unit a closure is assembled from anyway.
 
 ## Would the file index fit in one SQLite database?
@@ -86,7 +86,7 @@ So shards are cut by crawl generation, not by content. Each run writes only
 the digests nobody has published before, into files named for the day they
 were crawled. Every earlier shard hashes identically to its pin and is never
 uploaded again. There is no merge step, no cross-file invariant, and nothing
-that can go stale — the union of every shard is the artifact, and later shards
+that can go stale. The union of every shard is the artifact, and later shards
 never contradict earlier ones because there is nothing to contradict.
 
 ## Passthrough, and why the store mount is safe
@@ -97,9 +97,9 @@ it loads. A lazy store is therefore only useful mounted at `/nix/store`, which
 on a machine that already has one means hiding it.
 
 omnibin does not hide it. The real store is bind-mounted aside first, and
-every lookup checks it before the index. A path the host already has —
-something built locally, something from a private cache, the omnibin binary
-itself — is served from the real files and never fetched. The system keeps
+every lookup checks it before the index. A path the host already has, whether
+built locally, substituted from a private cache, or the omnibin binary itself,
+is served from the real files and never fetched. The system keeps
 working while its store is replaced underneath it.
 
 On a workstation that happens inside a user and mount namespace that dies with

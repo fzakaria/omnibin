@@ -4,7 +4,7 @@ Every binary nixpkgs ever shipped, on your PATH.
 
 ```console
 $ ls /omnibin/bin | wc -l
-35940
+51468
 
 $ python3 --version
 Python 3.14.6
@@ -13,44 +13,134 @@ $ python3@3.6.2 --version
 Python 3.6.2
 ```
 
-Nothing was installed. Nothing was built. The machine had none of those
-packages a second ago and still does not have most of them: `/omnibin/bin` is
-a filesystem, `/nix/store` underneath it is a filesystem, and a package's
-bytes are fetched from [cache.nixos.org](https://cache.nixos.org) the first
-time something reads a file inside it.
+That machine had none of those packages a moment ago and still has almost none
+of them. `/omnibin/bin` is a filesystem, `/nix/store` underneath it is a
+filesystem, and a package's bytes are fetched from
+[cache.nixos.org](https://cache.nixos.org) the first time something reads a
+file inside it.
 
 **Documentation:** [Design](./docs/design.md) ·
 [Using it](./docs/using.md) ·
 [Building the index](./docs/building-the-index.md) ·
 [Caveats](./docs/caveats.md)
 
+## Status
+
+![check workflow](https://github.com/fzakaria/omnibin/actions/workflows/check.yml/badge.svg?branch=main)
+![update workflow](https://github.com/fzakaria/omnibin/actions/workflows/update.yml/badge.svg?branch=main)
+
+<!-- BEGIN index-status -->
+
+- **51,468 executables** on `PATH`, over **253,817 package versions** of **23,590 attributes**
+- **881,933** `name@version` forms, addressing **619,915** store paths and 30.3 TB of unpacked bytes
+- 2012-07-05 to 2026-09-08, for `x86_64-linux`, built from nixpkgs-multiverse `data-20260924`
+
+<!-- END index-status -->
+
 ## Why
 
-Every environment an agent works in begins with somebody guessing which
-packages it will need. Guess short and the agent is stuck; guess long and you
-are shipping a ten-gigabyte image to run `jq` twice. Either way the agent's
-first move on a real task is to install something, which is the one thing a
-sealed environment is supposed to prevent.
+Every sandbox an agent works in begins with somebody guessing which packages it
+will need. Guess short and the agent is stuck halfway through a task; guess
+long and you ship a ten gigabyte image so that something can run `jq` twice.
+Either way the agent's first move on a real task is to install something, which
+is what a sealed environment exists to prevent.
 
 omnibin removes the guess. The machine starts with every version of every
-package already on its PATH, weighing nothing, and pays only for what is
-actually run.
+package on its PATH, weighing nothing, and pays only for what gets run.
 
 The other half is history. [nixpkgs-multiverse] resolves any
 `(attribute, version)` in thirteen years of nixpkgs to the store path Hydra
-built for it, so an old version is not a build, it is a download. 416 packages
-have shipped something called `python3`; `python3@3.6.2` is one of them, and
-reaching it costs a download rather than an afternoon.
+built for it, so an old version costs a download rather than a build. 610
+packages have shipped something called `python3`, and reaching any of them is
+one command.
 
-## Four ways in
+## How it works
 
-**A shell, on any Linux.** The lazy store is mounted over `/nix/store` inside
-a user and mount namespace that belongs to this shell and dies with it. Your
-real store is served through it untouched, so the software you already have
-keeps working — including the shell you are typing into.
+Hydra publishes a `.ls` file beside every narinfo on cache.nixos.org: the
+complete listing of a store path's contents as JSON, with each entry's type,
+size, executable bit and symlink target. That is the metadata half of a Nix
+store, already served, at about nine kilobytes per path. omnibin crawls those
+listings once, which is the only data this project adds to what
+[nixpkgs-multiverse] already publishes, and keeps them in a database.
+
+```mermaid
+flowchart LR
+  subgraph build ["built once, published as a release"]
+    LS["cache.nixos.org<br/>.ls listings"] -->|"crawl, 12 min"| JSONL["listings<br/>jsonl.zst"]
+    MV["nixpkgs-multiverse<br/>outpaths + narinfo graph"] --> DB[("omnibin.db<br/>50,462 names")]
+    JSONL --> DB
+  end
+
+  subgraph run ["at runtime"]
+    DB --> TREE["/omnibin/bin<br/>names and versions"]
+    DB --> STORE["/nix/store<br/>lazy, passthrough to the real one"]
+    STORE -.->|"only when a file is read"| NAR["cache.nixos.org<br/>NARs"]
+  end
+```
+
+The filesystem answers every question about what exists out of that database,
+with no network at all:
+
+```console
+$ ls /nix/store/2lb6nn8ivk1alhckv43n7734lqwbw7h9-python3-3.6.2/bin
+2to3      idle     pydoc     python   python3.6          python3-config  pyvenv
+2to3-3.6  idle3    pydoc3    python3  python3.6-config   python-config   pyvenv-3.6
+          idle3.6  pydoc3.6           python3.6m         python3.6m-config
+```
+
+That is CPython from 2017 and it is not on the machine. Listing it cost
+nothing. Reading one byte out of `python3.6` fetches the NAR, once, after which
+the path is served from the unpacked copy like any other directory.
+
+## Finding things
+
+`/omnibin/bin` is the second filesystem and the one people use. `ls` shows the
+bare names, one per executable anybody ever shipped, each resolving to the
+newest package that provides it. The versioned forms resolve too but are
+deliberately not listed, because there are 881,933 of them and a directory
+nothing can read is worse than one that answers the questions you ask it.
+
+So ask. `omnibin which` is the ergonomic way in and costs no downloads:
+
+```console
+$ omnibin which python3
+/nix/store/gxzhl7aaiid7zp3y47jqqiq7zg5mqpwp-python3-3.14.6/bin/python3
+
+$ omnibin which --all python3 | wc -l
+610
+
+$ omnibin which --all ffmpeg | head -2
+ffmpeg@3.1.7  ffmpeg  0.4 MB  /nix/store/0adpc3…-ffmpeg-3.1.7-bin/bin/ffmpeg
+ffmpeg@3.2.4  ffmpeg  0.4 MB  /nix/store/nhfgdv…-ffmpeg-3.2.4-bin/bin/ffmpeg
+```
+
+The size is what running that version costs the first time. When you want to
+ask something `which` does not answer, the database is a plain SQLite file at
+`/omnibin/index.db`:
+
+```console
+$ sqlite3 /omnibin/index.db \
+    "SELECT name FROM latest WHERE name LIKE 'gcc%'"
+```
+
+## Three ways in
+
+**A shell, on any Linux.** The lazy store is mounted over `/nix/store` inside a
+user and mount namespace belonging to this shell, which dies with it. Your real
+store is served through it untouched, so the software you already have keeps
+working, including the shell you are typing into.
 
 ```console
 $ nix run github:fzakaria/omnibin
+omnibin: tree at /run/user/1000/omnibin, cache at /home/you/.cache/omnibin
+
+$ python3@3.6.2 -c 'import sys; print(sys.version.split()[0])'
+3.6.2
+
+$ jq --version
+jq-1.8.1
+
+$ exit
 ```
 
 **A NixOS machine.** One module, and every package is installed on it.
@@ -62,58 +152,34 @@ $ nix run github:fzakaria/omnibin
 }
 ```
 
-**A VM**, which is that module with a login and nothing else:
+**A container.** [`fmzakari/omnibin`](https://hub.docker.com/r/fmzakari/omnibin)
+mounts on start, so it works as a base for anything that wants a full toolbox
+without choosing one:
 
-```console
-$ nix run github:fzakaria/omnibin#vm
+```dockerfile
+FROM fmzakari/omnibin:latest
+
+COPY run-tests.sh /run-tests.sh
+CMD ["/run-tests.sh"]
 ```
 
-**A container.** FUSE needs the device and the capability; the image needs
-nothing else.
-
 ```console
-$ nix build github:fzakaria/omnibin#docker && docker load < result
-$ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN omnibin
+$ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN fmzakari/omnibin
+$ ls /omnibin/bin | wc -l
+51468
 ```
 
-## How it works
+FUSE inside a container needs the device and the capability, and nothing else.
+`SYS_ADMIN` is for `mount` and `/dev/fuse` is for FUSE.
 
-Hydra publishes a `.ls` file beside every narinfo on cache.nixos.org: the
-complete listing of a store path's contents as JSON, with each entry's type,
-size, executable bit and symlink target. That is the metadata half of a Nix
-store, already served, at about nine kilobytes per path. omnibin crawls those
-listings once — the only data this project adds to what [nixpkgs-multiverse]
-already publishes — and keeps them in a database.
-
-The filesystem then answers every question about what exists out of that
-database, with no network at all:
-
-```console
-$ ls /nix/store/bm64j3i36fzaxb7yg2da7yvv29ndn4ar-python3-3.6.2/bin
-2to3     idle      pydoc     python    python3.6         python3-config  pyvenv
-2to3-3.6 idle3     pydoc3    python3   python3.6-config  python-config   pyvenv-3.6
-         idle3.6   pydoc3.6            python3.6m        python3.6m-config
-```
-
-That path is not on the machine. Listing it cost nothing. Reading one byte out
-of `python3.6` is what fetches the NAR, once, after which the path is served
-from the unpacked copy like any other directory.
-
-`/omnibin/bin` is the second filesystem, and it is the one people use.
-`ls` shows the 35,940 bare names, one per executable anybody ever shipped,
-each resolving to the newest package that provides it. The versioned forms resolve
-too but are deliberately not listed — there are over a million of them, and a
-directory nothing can read is worse than one that answers every question you
-actually ask it. Ask the index instead:
-
-```console
-$ sqlite3 /omnibin/index.db \
-    "SELECT attr, version FROM bins WHERE name = 'python3' ORDER BY version"
-```
+The packages arrive when the container runs, not when it builds. `docker build`
+gives a `RUN` step neither `/dev/fuse` nor the capability to mount, so a `RUN`
+that calls `jq` fails the same way it would on any base image without it. Put
+the work in `CMD` or `ENTRYPOINT`, where the mount is up.
 
 ## What it costs
 
-Measured, on a machine that had never seen CPython 3.6.2:
+Measured on a machine that had never seen CPython 3.6.2:
 
 ```console
 $ time python3@3.6.2 -c 'import sys; print(sys.version.split()[0])'
@@ -126,34 +192,16 @@ real    0m0.035s
 ```
 
 The cold run fetched three store paths and 92 MB: the interpreter, its glibc,
-and one more. The warm run touched the network zero times. That is the whole
-trade — disk and bandwidth for exactly the packages that were used, instead of
-an image sized for the packages somebody guessed would be.
-
-## Status
-
-Early, and honest about it.
-
-The filesystem works and is tested against the real cache. The first full
-crawl fetched **225,671 listings out of 233,197 store paths in 11.7 minutes**
-— 6,801 the cache no longer holds, 725 whose published listing is corrupt
-upstream, none that failed. That yields **35,940 bare executable names** over
-350,084 `(name, attribute, version)` rows.
-
-Those numbers are a floor. The index was joined against a multiverse artifact
-cut two days older than its own outpaths file, so only 102,553 of 250,622
-`(attribute, version)` pairs matched and the older end of history is thinner
-than it will be. A matching cut is the next thing to run.
-
-The data releases are not cut yet, so `data-pins.json` is empty and the
-package takes `--db` until it is.
+and one more. The warm run touched the network zero times. That is the trade,
+disk and bandwidth for exactly the packages that got used, against an image
+sized for the packages somebody guessed would be.
 
 ## License
 
 MIT, please see [LICENSE](LICENSE).
 
 The Nix expressions and tooling are original work. The published listings are
-generated metadata about store paths — names, sizes and modes — crawled from
-cache.nixos.org, not nixpkgs source.
+generated metadata about store paths, being names, sizes and modes crawled from
+cache.nixos.org, and are not nixpkgs source.
 
 [nixpkgs-multiverse]: https://github.com/fzakaria/nixpkgs-multiverse

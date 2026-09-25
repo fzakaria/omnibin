@@ -19,6 +19,11 @@ jobs:
           nix fmt
           git diff --exit-code
 
+      # House style, checked rather than remembered: no em dashes, none of the
+      # vocabulary that marks machine written prose. Code comments count.
+      - name: prose
+        run: nix develop --command tools/check-prose.py
+
       - name: nix flake check
         run: nix flake check --all-systems
 

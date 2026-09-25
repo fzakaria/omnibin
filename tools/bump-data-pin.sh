@@ -2,9 +2,9 @@
 # Repoints data-pins.json at a dated release cut.
 #
 # Every file handed in gets an entry {tag, narHash} under its basename; entries
-# for files not named are left alone. That is the whole point of per-file pins
-# here: a file listing is content-addressed, so a shard published once is
-# correct forever and keeps pointing at the tag that froze it.
+# for files not named are left alone, which is why the pins are per file: a
+# file listing is content addressed, so a shard published once stays correct
+# forever and keeps pointing at the tag that froze it.
 #
 # The narHash is what the fetcher verifies, so a pin computed here fails closed
 # against a tampered or re-uploaded asset.

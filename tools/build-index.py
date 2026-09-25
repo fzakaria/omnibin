@@ -21,6 +21,7 @@ and is read by prefix, not by SQL.
 """
 
 import argparse
+import glob
 import gzip
 import json
 import os
@@ -91,52 +92,112 @@ def load_dates(versions_file, revisions_file):
     return dates
 
 
-def load_info(info_file):
+def load_info(info_files):
     """digest -> (name, nar_url, nar_size, file_size) for every crawled path.
+
+    multiverse publishes the narinfo graph as one shard per period, year files
+    for finished years and month files for the current one, so this takes all
+    of them and unions the result. Reading only some of them is the difference
+    between an index that covers thirteen years and one that covers the last
+    few months.
 
     Entries the crawl found dead carry no name or URL; they are dropped here,
     because a path omnibin cannot fetch is a path it should not advertise.
     """
     info = {}
-    for digest, entry in json.load(gzip.open(info_file)).items():
-        if not entry[INFO_ALIVE] or entry[INFO_NAME] is None:
-            continue
-        info[digest] = (
-            entry[INFO_NAME],
-            entry[INFO_NAR_URL],
-            entry[INFO_NAR_SIZE],
-            entry[INFO_FILE_SIZE],
-        )
+    for info_file in info_files:
+        opener = gzip.open if str(info_file).endswith(".gz") else open
+        for digest, entry in json.load(opener(info_file)).items():
+            if not entry[INFO_ALIVE] or entry[INFO_NAME] is None:
+                continue
+            info[digest] = (
+                entry[INFO_NAME],
+                entry[INFO_NAR_URL],
+                entry[INFO_NAR_SIZE],
+                entry[INFO_FILE_SIZE],
+            )
 
     return info
+
+
+def load_narinfos(paths):
+    """digest -> the same four fields, for paths crawled directly.
+
+    These are the separate `bin` outputs, which no closure walk reaches. Loaded
+    after the graph so that a digest in both takes the freshly fetched answer.
+    """
+    info = {}
+    for path in paths:
+        zstd = subprocess.Popen(["zstd", "-dc", path], stdout=subprocess.PIPE)
+        for line in zstd.stdout:
+            record = json.loads(line)
+            if not record.get("ok"):
+                continue
+            info[record["d"]] = (
+                record["name"],
+                record["nar_url"],
+                record["nar_size"],
+                record["file_size"],
+            )
+
+        if zstd.wait() != 0:
+            sys.exit(f"build-index: zstd failed reading {path}")
+
+    return info
+
+
+def resolve_info_files(paths):
+    """Expand a directory of narinfo shards into the files inside it.
+
+    Either spelling works: a directory, which is what fetch-multiverse.sh
+    writes, or the shard files named one by one.
+    """
+    files = []
+    for path in paths:
+        if os.path.isdir(path):
+            files.extend(
+                sorted(glob.glob(os.path.join(path, "info-indexed-*.json.gz")))
+            )
+            continue
+        files.append(path)
+
+    if not files:
+        sys.exit("build-index: no info-indexed shards found")
+
+    return files
 
 
 def bin_entries(root):
     """The names in a listing's top-level bin/ directory.
 
     Only the top level: a package's executables are what goes on PATH, and
-    libexec or share/ helpers are not. Symlinks count — `python3` is one.
+    libexec or share/ helpers are not. Symlinks count, and `python3` is one.
     """
     entries = root.get("entries") or {}
     bin_dir = entries.get("bin") or {}
 
-    # Dotfiles in bin/ are wrapper internals — `.audacious-wrapped` is the real
+    # Dotfiles in bin/ are wrapper internals. `.audacious-wrapped` is the real
     # ELF that the `audacious` shell wrapper execs. They are not commands
     # anybody types, and putting them on PATH would be noise.
     return [n for n in (bin_dir.get("entries") or {}) if not n.startswith(".")]
 
 
-def read_listings(path):
-    """Yield (digest, root) for every listing the crawl actually got."""
-    zstd = subprocess.Popen(["zstd", "-dc", path], stdout=subprocess.PIPE)
-    for line in zstd.stdout:
-        record = json.loads(line)
-        if not record.get("ok"):
-            continue
-        yield record["d"], record["root"]
+def read_listings(paths):
+    """Yield (digest, root) for every listing the crawls actually got.
 
-    if zstd.wait() != 0:
-        sys.exit(f"build-index: zstd failed reading {path}")
+    Takes several files because a run crawls only what is new, so the current
+    state of the listings is the first full crawl plus every delta since.
+    """
+    for path in paths:
+        zstd = subprocess.Popen(["zstd", "-dc", path], stdout=subprocess.PIPE)
+        for line in zstd.stdout:
+            record = json.loads(line)
+            if not record.get("ok"):
+                continue
+            yield record["d"], record["root"]
+
+        if zstd.wait() != 0:
+            sys.exit(f"build-index: zstd failed reading {path}")
 
 
 def choose_latest(candidates, name):
@@ -178,9 +239,10 @@ def build(args):
     db.executescript(SCHEMA)
 
     # The store paths omnibin can serve, which is everything the multiverse
-    # narinfo crawl found alive — the indexed packages and every closure member
+    # narinfo crawl found alive: the indexed packages and every closure member
     # underneath them, since running a package needs both.
-    info = load_info(args.info_indexed)
+    info = load_info(resolve_info_files(args.info_indexed))
+    info.update(load_narinfos(args.narinfos))
     db.executemany(
         "INSERT INTO paths(digest, name, nar_url, nar_size, file_size) VALUES (?,?,?,?,?)",
         ((d, *fields) for d, fields in info.items()),
@@ -205,12 +267,21 @@ def build(args):
 
     # Which packages own which digest, so a listing can be attributed back to
     # the (attribute, version) pairs that name it. One digest can be named by
-    # several pairs — the same build shipped under two attributes.
+    # several pairs, being the same build shipped under two attributes.
+    #
+    # A package that splits its binaries into a separate `bin` output has
+    # nothing in the main output's bin/, so the sibling map is consulted and
+    # that output is registered as belonging to the same package. jq is one of
+    # these, and without this it looks like a package that ships no commands.
+    siblings = json.load(open(args.outs)) if args.outs else {}
     owners = {}
     for attr, version, digest, last_seen in pkgs:
-        owners.setdefault(digest, []).append(
-            {"attr": attr, "version": version, "last_seen": last_seen}
-        )
+        owner = {"attr": attr, "version": version, "last_seen": last_seen}
+        owners.setdefault(digest, []).append(owner)
+
+        bin_output = siblings.get(digest, {}).get("bin")
+        if bin_output:
+            owners.setdefault(bin_output, []).append(owner)
 
     # The one new table: every executable in every indexed package's bin/.
     bins = []
@@ -261,13 +332,28 @@ def build(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--listings", required=True, help="listings.jsonl.zst from crawl-listings.py"
+        "--listings",
+        required=True,
+        nargs="+",
+        help="listings files from crawl-listings.py, the first crawl and every delta",
     )
     ap.add_argument(
         "--outpaths", required=True, help="multiverse outpaths-<system>.json"
     )
     ap.add_argument(
-        "--info-indexed", required=True, help="multiverse info-indexed.json.gz"
+        "--outs", help="multiverse outs-<system>.json, the sibling output map"
+    )
+    ap.add_argument(
+        "--narinfos",
+        nargs="+",
+        default=[],
+        help="narinfos.jsonl.zst from crawl-narinfos.py, for paths the graph misses",
+    )
+    ap.add_argument(
+        "--info-indexed",
+        required=True,
+        nargs="+",
+        help="multiverse info-indexed shards, or the directory holding them",
     )
     ap.add_argument("--versions", required=True, help="multiverse index/versions.json")
     ap.add_argument("--revisions", required=True, help="multiverse revisions.json")
