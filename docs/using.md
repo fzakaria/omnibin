@@ -1,14 +1,17 @@
 # Using it
 
-There are four ways in and they are the same binary. Which one you want
+There are three ways in and they are the same binary. Which one you want
 depends on how much of the machine you are willing to let it have.
 
 |                 | mounts `/nix/store` for     | needs root            | survives the shell |
 | --------------- | --------------------------- | --------------------- | ------------------ |
 | `omnibin-shell` | this shell and its children | no                    | no                 |
 | NixOS module    | the whole machine           | yes                   | yes                |
-| VM              | the whole machine           | it is the machine     | yes                |
 | container       | the whole container         | `--cap-add SYS_ADMIN` | yes                |
+
+`nix run .#vm` also exists. It is the NixOS module with a login and nothing
+else, for testing the module without handing it a real machine, rather than a
+way anybody should run this.
 
 ## omnibin-shell
 
@@ -78,28 +81,35 @@ Options:
 symlinks in it are absolute, so they resolve only for packages the machine
 already has. It is useful for reading the index, not for running anything new.
 
-## The VM
-
-```console
-$ nix run github:fzakaria/omnibin#vm
-```
-
-The module, a root login, and nothing else. 4 GB of RAM and a 16 GB disk for
-the fetch cache. This is the agent sandbox: a machine with every package on it
-that took no time to build.
-
 ## The container
 
-FUSE in a container needs the device and the capability. Nothing else.
+[`fmzakari/omnibin`](https://hub.docker.com/r/fmzakari/omnibin) mounts on
+start. FUSE in a container needs the device and the capability and nothing
+else: `SYS_ADMIN` is for `mount`, `/dev/fuse` is for FUSE.
 
 ```console
-$ nix build github:fzakaria/omnibin#docker
-$ docker load < result
-$ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN omnibin
+$ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN fmzakari/omnibin
+$ ls /omnibin/bin | wc -l
+51468
 ```
 
-There is no real store inside, so there is nothing to preserve and the lazy
-store is mounted straight at `/nix/store` with no passthrough.
+It works as a base image:
+
+```dockerfile
+FROM fmzakari/omnibin:latest
+
+COPY run-tests.sh /run-tests.sh
+CMD ["/run-tests.sh"]
+```
+
+The packages are there when the container runs, not when it builds. A `RUN`
+step in `docker build` has neither `/dev/fuse` nor the capability to mount, so
+`RUN jq --version` fails exactly as it would on a base image without jq. Put
+the work in `CMD` or `ENTRYPOINT`.
+
+The image is built by Nix, so its own layers are a real store holding the
+shell, omnibin and the index. That store is served as the passthrough, which
+is why everything that shipped in the image keeps working without a fetch.
 
 ## Naming
 
@@ -108,7 +118,7 @@ store is mounted straight at `/nix/store` with no passthrough.
 /omnibin/bin/<name>@<version>  that executable at that exact version
 ```
 
-`ls /omnibin/bin` lists the 35,940 bare names only. The versioned forms
+`ls /omnibin/bin` lists the 51,468 bare names only. The versioned forms
 resolve on lookup and are not listed, because there are 881,933 of them.
 
 A bare name resolves by four rules, the first that separates two candidates
