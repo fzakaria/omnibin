@@ -35,37 +35,11 @@ const VERSION_SEPARATOR: char = '@';
 
 /// Dropped in the mount root, because the first thing anything exploring this
 /// filesystem should be told is not to explore it.
-const README: &str = "\
-# omnibin
-
-Every executable nixpkgs ever shipped is in ./bin.
-
-  ./bin/<name>            the newest package that provides <name>
-  ./bin/<name>@<version>  that executable at that exact version
-
-`ls ./bin` lists the bare names. The versioned forms are NOT listed, because
-there are over eight hundred thousand, but they resolve:
-
-  ./bin/python3@3.6.2
-  ./bin/gcc@4.9.4
-
-Do not walk this tree to find things. Query the database instead; it answers
-in milliseconds and costs no downloads:
-
-  sqlite3 /omnibin/index.db \\
-    \"SELECT attr, version FROM bins WHERE name = 'python3' ORDER BY version\"
-
-  sqlite3 /omnibin/index.db \\
-    \"SELECT name FROM latest WHERE name LIKE 'gcc%'\"
-
-Tables: paths(digest, name, nar_url, nar_size), pkgs(attr, version, digest,
-last_seen), bins(name, attr, version, digest), latest(name, attr, version,
-digest).
-
-Nothing is installed. A path is downloaded from cache.nixos.org the first
-time something reads a file inside it, so the first run of a large package is
-slow and every run after it is not.
-";
+///
+/// Read from a file rather than written inline, so that the thing telling a
+/// reader how to use the mount can be found, edited and reviewed like any
+/// other prose in the repository.
+const README: &str = include_str!("mount-readme.md");
 
 pub struct TreeFs {
     index: Arc<Index>,
