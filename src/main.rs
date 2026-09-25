@@ -134,6 +134,15 @@ fn mount(
         options.push(MountOption::AutoUnmount);
     }
 
+    // Serving /nix/store means this process's own libraries are behind the
+    // mount it is servicing. A page fault on one of them would be answered by
+    // a thread that is blocked on that same fault, which is a deadlock with no
+    // way out. Pinning every page — the ones mapped now and the ones mapped
+    // later — is what makes it safe to mount over a live store.
+    if store == PathBuf::from(NIX_STORE) {
+        lock_memory()?;
+    }
+
     let store_fs = StoreFs::new(index.clone(), fetcher, passthrough);
     let store_session = fuser::spawn_mount2(store_fs, &store, &options)
         .with_context(|| format!("mounting {}", store.display()))?;
@@ -160,6 +169,27 @@ fn mount(
 
     drop(tree_session);
     drop(store_session);
+    Ok(())
+}
+
+/// Pin this process's pages in RAM.
+///
+/// Needs CAP_IPC_LOCK, which a mapped-root user namespace has, or an
+/// RLIMIT_MEMLOCK large enough. Failing is fatal rather than a warning: a
+/// daemon that can fault on its own text while serving /nix/store will hang
+/// the namespace the first time it does, and hanging later is worse than
+/// refusing now.
+fn lock_memory() -> Result<()> {
+    let locked = unsafe { libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE) };
+    if locked != 0 {
+        let err = std::io::Error::last_os_error();
+        bail!(
+            "could not lock memory ({err}); serving {NIX_STORE} needs it, \
+             because a page fault in this process would deadlock on itself. \
+             Raise RLIMIT_MEMLOCK, or mount somewhere other than {NIX_STORE}."
+        );
+    }
+
     Ok(())
 }
 
@@ -230,6 +260,13 @@ fn which(db: Option<PathBuf>, name: String, all: bool) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    // Rust ignores SIGPIPE so that a failed write surfaces as an error, which
+    // for a command whose output is meant to be piped into `head` means a
+    // panic instead of a quiet exit. Restore the default.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     match Cli::parse().command {
         Command::Mount {
             store,
@@ -239,7 +276,17 @@ fn main() -> Result<()> {
             cache_url,
             db,
             allow_other,
-        } => mount(store, tree, passthrough, cache_dir, cache_url, db, allow_other),
-        Command::Which { name, all } => which(std::env::var_os(DB_ENV).map(PathBuf::from), name, all),
+        } => mount(
+            store,
+            tree,
+            passthrough,
+            cache_dir,
+            cache_url,
+            db,
+            allow_other,
+        ),
+        Command::Which { name, all } => {
+            which(std::env::var_os(DB_ENV).map(PathBuf::from), name, all)
+        }
     }
 }

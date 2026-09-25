@@ -76,6 +76,12 @@ pub struct TreeFs {
     targets: HashMap<u64, String>,
     by_name: HashMap<String, u64>,
     next_ino: u64,
+
+    /// Every bare name, read once. The kernel asks for a directory in reply
+    /// buffer sized chunks — hundreds of calls for a directory this size — and
+    /// re-running the query for each of them is quadratic in the number of
+    /// names, which at 35,940 is slow enough to look like a hang.
+    names: Option<Vec<String>>,
 }
 
 impl TreeFs {
@@ -87,6 +93,7 @@ impl TreeFs {
             targets: HashMap::new(),
             by_name: HashMap::new(),
             next_ino: FIRST_DYNAMIC_INO,
+            names: None,
         }
     }
 
@@ -240,11 +247,18 @@ impl Filesystem for TreeFs {
             BIN_INO => {
                 // Bare names only. The versioned forms resolve on lookup and
                 // are left out on purpose.
-                let Ok(names) = self.index.bare_names() else {
-                    reply.error(libc::EIO);
-                    return;
-                };
-                entries.extend(names.into_iter().map(|n| (n, FileType::Symlink)));
+                if self.names.is_none() {
+                    match self.index.bare_names() {
+                        Ok(names) => self.names = Some(names),
+                        Err(_) => {
+                            reply.error(libc::EIO);
+                            return;
+                        }
+                    }
+                }
+
+                let names = self.names.as_ref().expect("just filled");
+                entries.extend(names.iter().map(|n| (n.clone(), FileType::Symlink)));
             }
             _ => {
                 reply.error(libc::ENOTDIR);

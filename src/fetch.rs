@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
-use crate::index::StorePath;
+use crate::index::{StorePath, DIGEST_LEN};
 use crate::nar;
 
 /// The public cache every indexed path came from.
@@ -52,6 +52,8 @@ pub struct Fetcher {
     /// Where fetched `.ls` documents are kept, so a second look at a path
     /// costs nothing even when the listings artifact is not installed.
     listing_dir: PathBuf,
+    /// Where narinfos fetched for paths the index does not hold are kept.
+    narinfo_dir: PathBuf,
     /// One lock per digest, so two processes reading the same package at the
     /// same time download it once.
     in_flight: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -61,13 +63,16 @@ impl Fetcher {
     pub fn new(cache_dir: &Path, cache_url: &str) -> Result<Self> {
         let store_dir = cache_dir.join("store");
         let listing_dir = cache_dir.join("listings");
+        let narinfo_dir = cache_dir.join("narinfos");
         fs::create_dir_all(&store_dir)?;
         fs::create_dir_all(&listing_dir)?;
+        fs::create_dir_all(&narinfo_dir)?;
 
         Ok(Self {
             cache_url: cache_url.trim_end_matches('/').to_string(),
             store_dir,
             listing_dir,
+            narinfo_dir,
             in_flight: Mutex::new(HashMap::new()),
         })
     }
@@ -158,6 +163,38 @@ impl Fetcher {
         self.store_path_dir(digest).exists()
     }
 
+    /// Ask the cache directly what a digest is.
+    ///
+    /// The index is an optimisation, not a gate. It holds the paths the
+    /// multiverse crawl knew about, which is every indexed package and most of
+    /// what they depend on — but "most" is not "all", and a closure member the
+    /// index missed would otherwise make a package that substitutes fine
+    /// refuse to run. One narinfo answers the question for any path the cache
+    /// still holds, indexed or not.
+    pub fn narinfo(&self, digest: &str) -> Result<Option<NarInfo>> {
+        let cached = self.narinfo_dir.join(digest);
+        if cached.exists() {
+            let text = fs::read_to_string(&cached)?;
+            if text.is_empty() {
+                return Ok(None);
+            }
+            return Ok(parse_narinfo(&text));
+        }
+
+        let url = format!("{}/{}.narinfo", self.cache_url, digest);
+        let text = match ureq::get(&url).call() {
+            Ok(response) => response.into_string()?,
+            Err(ureq::Error::Status(404, _)) => {
+                fs::write(&cached, b"")?;
+                return Ok(None);
+            }
+            Err(e) => return Err(e).context(format!("GET {url}")),
+        };
+
+        fs::write(&cached, &text)?;
+        Ok(parse_narinfo(&text))
+    }
+
     /// A store path's file listing, from the on-disk cache or the network.
     ///
     /// `None` means the cache has no listing for this digest, which happens
@@ -207,6 +244,46 @@ impl Fetcher {
         fs::write(&cached, &json)?;
         Ok(value.get("root").cloned())
     }
+}
+
+/// The three narinfo fields a lazy store needs: what the path is called, what
+/// to GET for its contents, and how big those contents are.
+pub struct NarInfo {
+    pub name: String,
+    pub nar_url: String,
+    pub nar_size: Option<u64>,
+}
+
+/// Parse the `Key: value` lines of a narinfo.
+///
+/// StorePath carries the full `/nix/store/<digest>-<name>`; the name is what
+/// is left after the digest and its separating dash.
+fn parse_narinfo(text: &str) -> Option<NarInfo> {
+    let mut name = None;
+    let mut nar_url = None;
+    let mut nar_size = None;
+
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(": ") else {
+            continue;
+        };
+
+        match key {
+            "StorePath" => {
+                let base = value.rsplit('/').next()?;
+                name = Some(base.get(DIGEST_LEN + 1..)?.to_string());
+            }
+            "URL" => nar_url = Some(value.to_string()),
+            "NarSize" => nar_size = value.parse().ok(),
+            _ => {}
+        }
+    }
+
+    Some(NarInfo {
+        name: name?,
+        nar_url: nar_url?,
+        nar_size,
+    })
 }
 
 /// Decompress a `.ls` body. The magic bytes are trusted over the declared

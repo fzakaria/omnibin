@@ -151,7 +151,12 @@ def choose_latest(candidates, name):
     """
     return min(
         candidates,
-        key=lambda c: (c["attr"] != name, _invert(c["last_seen"]), len(c["attr"]), c["attr"]),
+        key=lambda c: (
+            c["attr"] != name,
+            _invert(c["last_seen"]),
+            len(c["attr"]),
+            c["attr"],
+        ),
     )
 
 
@@ -193,7 +198,9 @@ def build(args):
             if digest not in info:
                 continue
             pkgs.append((attr, version, digest, dates.get((attr, version))))
-    db.executemany("INSERT INTO pkgs(attr, version, digest, last_seen) VALUES (?,?,?,?)", pkgs)
+    db.executemany(
+        "INSERT INTO pkgs(attr, version, digest, last_seen) VALUES (?,?,?,?)", pkgs
+    )
     print(f"pkgs: {len(pkgs)}", file=sys.stderr)
 
     # Which packages own which digest, so a listing can be attributed back to
@@ -216,9 +223,14 @@ def build(args):
                 bins.append((name, owner["attr"], owner["version"], digest))
                 by_name.setdefault(name, []).append({**owner, "digest": digest})
 
-    db.executemany("INSERT OR IGNORE INTO bins(name, attr, version, digest) VALUES (?,?,?,?)", bins)
+    db.executemany(
+        "INSERT OR IGNORE INTO bins(name, attr, version, digest) VALUES (?,?,?,?)", bins
+    )
     db.executemany("UPDATE paths SET has_listing = 1 WHERE digest = ?", listed)
-    print(f"listings: {len(listed)}  bins: {len(bins)}  names: {len(by_name)}", file=sys.stderr)
+    print(
+        f"listings: {len(listed)}  bins: {len(bins)}  names: {len(by_name)}",
+        file=sys.stderr,
+    )
 
     # What a bare name on PATH resolves to.
     latest = [
@@ -226,7 +238,9 @@ def build(args):
         for name, candidates in by_name.items()
         for c in [choose_latest(candidates, name)]
     ]
-    db.executemany("INSERT INTO latest(name, attr, version, digest) VALUES (?,?,?,?)", latest)
+    db.executemany(
+        "INSERT INTO latest(name, attr, version, digest) VALUES (?,?,?,?)", latest
+    )
     print(f"latest: {len(latest)}", file=sys.stderr)
 
     db.executemany(
@@ -246,9 +260,15 @@ def build(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--listings", required=True, help="listings.jsonl.zst from crawl-listings.py")
-    ap.add_argument("--outpaths", required=True, help="multiverse outpaths-<system>.json")
-    ap.add_argument("--info-indexed", required=True, help="multiverse info-indexed.json.gz")
+    ap.add_argument(
+        "--listings", required=True, help="listings.jsonl.zst from crawl-listings.py"
+    )
+    ap.add_argument(
+        "--outpaths", required=True, help="multiverse outpaths-<system>.json"
+    )
+    ap.add_argument(
+        "--info-indexed", required=True, help="multiverse info-indexed.json.gz"
+    )
     ap.add_argument("--versions", required=True, help="multiverse index/versions.json")
     ap.add_argument("--revisions", required=True, help="multiverse revisions.json")
     ap.add_argument("--system", required=True, help="the system these paths are for")

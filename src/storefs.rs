@@ -17,6 +17,7 @@ use fuser::{
     Request,
 };
 use serde_json::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -28,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::fetch::Fetcher;
-use crate::index::Index;
+use crate::index::{Index, StorePath, DIGEST_LEN};
 
 /// The root of any FUSE filesystem.
 const ROOT_INO: u64 = 1;
@@ -81,14 +82,15 @@ pub struct StoreFs {
 
     open_files: HashMap<u64, fs::File>,
     next_fh: u64,
+
+    /// Parsed listings, by digest. Reading and re-parsing a path's `.ls` on
+    /// every getattr and every chunk of a readdir is the same quadratic trap
+    /// the tree had, and a package with a large bin/ is enough to feel it.
+    listings: RefCell<HashMap<String, Option<Arc<Value>>>>,
 }
 
 impl StoreFs {
-    pub fn new(
-        index: Arc<Index>,
-        fetcher: Arc<Fetcher>,
-        passthrough: Option<PathBuf>,
-    ) -> Self {
+    pub fn new(index: Arc<Index>, fetcher: Arc<Fetcher>, passthrough: Option<PathBuf>) -> Self {
         Self {
             index,
             fetcher,
@@ -100,6 +102,7 @@ impl StoreFs {
             next_ino: ROOT_INO + 1,
             open_files: HashMap::new(),
             next_fh: 1,
+            listings: RefCell::new(HashMap::new()),
         }
     }
 
@@ -122,7 +125,7 @@ impl StoreFs {
         match &node.source {
             Source::Passthrough(base) => Some(base.join(&node.rel)),
             Source::Lazy(digest) => {
-                let path = self.index.path_by_digest(digest).ok()??;
+                let path = self.store_path(digest)?;
                 let dir = self.fetcher.materialize(&path).ok()?;
                 Some(dir.join(&node.rel))
             }
@@ -146,20 +149,62 @@ impl StoreFs {
             return None;
         };
 
-        // The crawl already established which paths the cache published a
-        // listing for. Asking the network about one it did not is a round trip
-        // whose answer is known.
-        if !self.index.path_by_digest(digest).ok()??.has_listing {
-            return None;
-        }
-
-        let mut current = self.fetcher.listing(digest).ok()??;
+        let root = self.cached_listing(digest)?;
+        let mut current = (*root).clone();
         for component in node.rel.components() {
             let name = component.as_os_str().to_str()?;
             current = current.get("entries")?.get(name)?.clone();
         }
 
         Some(current)
+    }
+
+    /// What a digest is, from the index if it holds it and from the cache's
+    /// own narinfo if it does not.
+    fn store_path(&self, digest: &str) -> Option<StorePath> {
+        if let Some(path) = self.index.path_by_digest(digest).ok().flatten() {
+            return Some(path);
+        }
+
+        let info = self.fetcher.narinfo(digest).ok().flatten()?;
+        Some(StorePath {
+            digest: digest.to_string(),
+            name: info.name,
+            nar_url: info.nar_url,
+            nar_size: info.nar_size,
+            // Nothing crawled it, so nothing knows whether it has a listing.
+            // Treating it as absent costs one metadata round trip and never
+            // a wrong answer.
+            has_listing: false,
+        })
+    }
+
+    /// A digest's parsed listing, read and parsed at most once per mount.
+    fn cached_listing(&self, digest: &str) -> Option<Arc<Value>> {
+        if let Some(cached) = self.listings.borrow().get(digest) {
+            return cached.clone();
+        }
+
+        // The crawl already established which paths the cache published a
+        // listing for. Asking the network about one it did not is a round trip
+        // whose answer is known.
+        let published = self
+            .index
+            .path_by_digest(digest)
+            .ok()
+            .flatten()
+            .is_some_and(|path| path.has_listing);
+
+        let root = if published {
+            self.fetcher.listing(digest).ok().flatten().map(Arc::new)
+        } else {
+            None
+        };
+
+        self.listings
+            .borrow_mut()
+            .insert(digest.to_string(), root.clone());
+        root
     }
 
     /// What one node is, from the listing if there is one and from the
@@ -297,9 +342,22 @@ impl StoreFs {
             }
         }
 
-        let path = self.index.path_by_base_name(name_str).ok()??;
+        if name_str.len() < DIGEST_LEN {
+            return None;
+        }
+        let digest = &name_str[..DIGEST_LEN];
+
+        // The index first, then the cache itself. A digest the index never
+        // recorded is still servable if the cache holds it, and closure
+        // members are exactly the paths most likely to fall in that gap.
+        if self.index.path_by_digest(digest).ok().flatten().is_none()
+            && self.fetcher.narinfo(digest).ok().flatten().is_none()
+        {
+            return None;
+        }
+
         Some(Node {
-            source: Source::Lazy(path.digest),
+            source: Source::Lazy(digest.to_string()),
             rel: PathBuf::new(),
         })
     }

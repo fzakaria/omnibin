@@ -1,0 +1,32 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+
+      # Formatting is settled by `nix fmt` for every language in the tree, so
+      # one step covers the Nix, the Rust and the Python.
+      - name: nix fmt
+        run: |
+          nix fmt
+          git diff --exit-code
+
+      - name: nix flake check
+        run: nix flake check --all-systems
+
+      - name: build
+        run: nix build .#omnibin .#omnibin-shell
+
+      # The filesystem is only interesting mounted. The runner has /dev/fuse,
+      # so this mounts a tree built from a small crawl and checks that looking
+      # at a package costs no download and reading one does.
+      - name: mount test
+        run: nix develop --command tests/mount-test.sh

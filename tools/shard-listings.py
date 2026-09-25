@@ -100,7 +100,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--in", dest="source", required=True, help="listings.jsonl.zst")
     ap.add_argument("--out-dir", required=True, help="directory of published shards")
-    ap.add_argument("--generation", required=True, help="tag for this cut, e.g. 20260924")
+    ap.add_argument(
+        "--generation", required=True, help="tag for this cut, e.g. 20260924"
+    )
     ap.add_argument("--max-part-bytes", type=int, default=DEFAULT_MAX_PART_BYTES)
     args = ap.parse_args()
 
