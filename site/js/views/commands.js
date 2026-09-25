@@ -29,12 +29,7 @@ import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
 /** The system a route is showing, which is the first one until asked. */
 export const systemOf = (route) => route.sys || SYSTEMS[0];
 
-function Search({ route, navigate, names }) {
-  // Typing replaces the history entry so Back leaves the page rather than
-  // walking one keystroke at a time.
-  const onInput = (e) =>
-    navigate({ ...route, q: e.target.value, cmd: "" }, Nav.REPLACE);
-
+function SearchResults({ route, navigate, names }) {
   const hits = useMemo(() => {
     if (!names || names === SHARD_ERROR) return [];
     const q = route.q.trim().toLowerCase();
@@ -57,18 +52,10 @@ function Search({ route, navigate, names }) {
     return [...exact, ...prefix, ...rest].slice(0, MAX_RESULTS);
   }, [names, route.q]);
 
-  return html`
-    <input
-      type="search"
-      placeholder="Search 51,000 executables, by the name you would type"
-      value=${route.q}
-      onInput=${onInput}
-      autofocus
-    />
+  if (route.q.trim().length < MIN_QUERY) return null;
 
-    ${route.q.trim().length >= MIN_QUERY &&
-    html`
-      <div id="status" class="muted">
+  return html`
+    <div id="status" class="muted">
         ${hits.length === 0
           ? "No executable by that name."
           : `${hits.length.toLocaleString()}${hits.length === MAX_RESULTS ? "+" : ""} matching`}
@@ -86,11 +73,10 @@ function Search({ route, navigate, names }) {
               <span class="muted">
                 ${` · ${compact(versions)} version${versions === 1 ? "" : "s"}`}
               </span>
-            <//>
-          `,
-        )}
-      </div>
-    `}
+          <//>
+        `,
+      )}
+    </div>
   `;
 }
 
@@ -474,7 +460,22 @@ export function Commands({ route, navigate }) {
   const system = systemOf(route);
   const names = useNames(system);
 
+  // The box stays put while a command is open, holding that command's name,
+  // so looking up the next one is typing rather than navigating back first.
+  // Typing replaces the history entry, so Back leaves the page rather than
+  // walking one keystroke at a time.
+  const onInput = (e) =>
+    navigate({ ...route, q: e.target.value, cmd: "" }, Nav.REPLACE);
+
   return html`
+    <input
+      type="search"
+      placeholder="Search 51,000 executables, by the name you would type"
+      value=${route.cmd || route.q}
+      onInput=${onInput}
+      autofocus
+    />
+
     ${route.cmd
       ? html`<${Versions}
           route=${route}
@@ -482,6 +483,6 @@ export function Commands({ route, navigate }) {
           name=${route.cmd}
           system=${system}
         />`
-      : html`<${Search} route=${route} navigate=${navigate} names=${names} />`}
+      : html`<${SearchResults} route=${route} navigate=${navigate} names=${names} />`}
   `;
 }
