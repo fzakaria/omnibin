@@ -98,8 +98,14 @@ It works as a base image:
 ```dockerfile
 FROM fmzakari/omnibin:latest
 
-COPY run-tests.sh /run-tests.sh
-CMD ["/run-tests.sh"]
+CMD ["bash", "-lc", "python3@3.6.2 -c 'import sys; print(sys.version.split()[0])'; jq --version"]
+```
+
+```console
+$ docker build -t example .
+$ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN example
+3.6.2
+jq-1.8.1
 ```
 
 The packages are there when the container runs, not when it builds. A `RUN`
