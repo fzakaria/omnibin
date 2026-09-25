@@ -88,6 +88,9 @@ a {
 nav {
   margin: 1rem 0;
   border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
 }
 /* The tabs are anchors rather than buttons so that each one is a crawlable
    link to the view it opens, and so middle-click and copy-link work on them.
@@ -774,6 +777,13 @@ footer {
 
 /* The system picker, sharing a line with "expand all". A select because the
    list grows by one with every system backfilled. */
+/* The tab strip owns the line; the picker goes to its far end. The margin is
+   what puts it there, and it only works because nav is a flex row. */
+nav .syspick {
+  margin-left: auto;
+  padding-bottom: 0.4rem;
+}
+
 .syspick {
   display: inline-flex;
   align-items: center;

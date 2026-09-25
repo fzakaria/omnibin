@@ -94,7 +94,7 @@ export function useVersions(system, name) {
   return state;
 }
 
-/** Which commands each build of one package ships, from this index. */
+/** Which commands one build of a package ships, from this index. */
 export function usePackageCommands(system, attr, version) {
   const [state, setState] = useState(null);
 

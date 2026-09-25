@@ -17,13 +17,12 @@ export const Nav = { PUSH: "push", REPLACE: "replace" };
  * The query string is the single source of truth for what the page shows, so
  * every view is a shareable link:
  *   ?cmd=python3                  one executable's versions
- *   ?pkg=texliveSmall&ver=2023    the commands one build of a package ships
  *   ?cmd=python3&sys=aarch64-linux   the same, on the other system
  *   ?q=ffmpeg                     a search
  *   ?view=packages                the widest packages
  *   ?view=stats                   the charts
  */
-const ROUTE_PARAMS = ["q", "cmd", "pkg", "ver", "sys"];
+const ROUTE_PARAMS = ["q", "cmd", "sys"];
 
 function readRoute() {
   const p = new URLSearchParams(location.search);
@@ -57,12 +56,6 @@ function describe(route) {
       description:
         `Every version of the \`${route.cmd}\` command nixpkgs ever shipped, ` +
         `with the store path and download size of each.`,
-    };
-  }
-  if (route.pkg) {
-    return {
-      title: `${route.pkg} · omnibin`,
-      description: `Every command the ${route.pkg} package ships.`,
     };
   }
   if (route.q) {

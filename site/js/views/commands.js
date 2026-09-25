@@ -97,41 +97,6 @@ function Search({ route, navigate, names }) {
   `;
 }
 
-/** Every command one build of a package ships, from this index. */
-function PackageCommands({ route, navigate, system }) {
-  const commands = usePackageCommands(system, route.pkg, route.ver);
-
-  if (commands === null) return html`<p class="muted">Loading…</p>`;
-  if (commands === SHARD_ERROR)
-    return html`<p class="muted">Could not load that package.</p>`;
-  if (commands.length === 0)
-    return html`<p class="muted">
-      ${`Nothing recorded for ${route.pkg}@${route.ver} on ${system}.`}
-    </p>`;
-
-  return html`
-    <h2>${`${route.pkg}@${route.ver}`}</h2>
-    <p class="muted">
-      ${`${compact(commands.length)} command${commands.length === 1 ? "" : "s"} on `}
-      <code>${system}</code>${`. Each one is every version of itself.`}
-    </p>
-    <div id="results">
-      ${commands.map(
-        (c) => html`
-          <${Link}
-            class="pkg"
-            key=${c}
-            to=${{ ...route, view: "commands", cmd: c, pkg: "", ver: "" }}
-            navigate=${navigate}
-          >
-            ${c}
-          <//>
-        `,
-      )}
-    </div>
-  `;
-}
-
 /** One directory of a listing, with its children expandable underneath. */
 function Dir({ node, path, depth }) {
   const [open, setOpen] = useState(depth === 0 ? ["bin"] : []);
@@ -243,13 +208,15 @@ function VersionDetail({ name, row, system }) {
           map its closure
         </a>
         ${" · "}
-        <a href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&sys=${system}`}>
-          ${`${row.attr} in the index`}
+        <a
+          href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&ver=${encodeURIComponent(row.version)}&sys=${system}`}
+        >
+          ${`${row.attr} ${row.version} in Multiverse`}
         </a>
       </p>
 
       <details class="table">
-        <summary>Every file</summary>
+        <summary>Browse the NAR</summary>
         <${Listing} digest=${row.digest} />
       </details>
     </div>
@@ -271,13 +238,19 @@ function Versions({ route, navigate, name, system }) {
       Nothing on <code>${system}</code> ships a <code>${name}</code>.
     </p>`;
 
-  const sorted = [...rows].sort(
-    (a, b) => compareVersions(a.version, b.version) || a.attr.localeCompare(b.attr),
-  );
+  // Newest first, by the date it last shipped. A build whose date the index
+  // does not know sorts to the bottom rather than pretending to be old.
+  const sorted = [...rows].sort((a, b) => {
+    if (a.lastSeen && b.lastSeen && a.lastSeen !== b.lastSeen) {
+      return b.lastSeen.localeCompare(a.lastSeen);
+    }
+    if (Boolean(a.lastSeen) !== Boolean(b.lastSeen)) return a.lastSeen ? -1 : 1;
+    return compareVersions(b.version, a.version) || a.attr.localeCompare(b.attr);
+  });
   const byDate = [...rows]
     .filter((r) => r.lastSeen)
     .sort((a, b) => a.lastSeen.localeCompare(b.lastSeen));
-  const newest = byDate[byDate.length - 1] ?? sorted[sorted.length - 1];
+  const newest = byDate[byDate.length - 1] ?? sorted[0];
   const attrs = new Set(sorted.map((r) => r.attr));
 
   return html`
@@ -317,7 +290,9 @@ function Versions({ route, navigate, name, system }) {
         >
           <span>${row.version}</span>
           <span class="muted">${row.attr}</span>
-          <span class="muted">${row.lastSeen ?? ""}</span>
+          <span class="muted" title=${row.lastSeen ? "" : "nixpkgs-multiverse records no revision for this build"}>
+            ${row.lastSeen ?? "unknown"}
+          </span>
           <span class="rowsize">${fmtBytes(row.narSize)}</span>
         <//>
       `;
@@ -325,20 +300,79 @@ function Versions({ route, navigate, name, system }) {
   `;
 }
 
-/** Download size across every build of one command, oldest to newest. */
+// Past this many builds a line drawn per build is noise: firefox has 1,653 of
+// them and they land three to a pixel. Above it, builds are grouped by the
+// month they shipped and the chart draws the range and the middle of each.
+const MAX_POINTS = 120;
+
+/** Group builds by month: the smallest, largest and middle size of each. */
+function byMonth(rows) {
+  const months = new Map();
+  for (const row of rows) {
+    const key = row.lastSeen.slice(0, 7);
+    if (!months.has(key)) months.set(key, []);
+    months.get(key).push(row.narSize || 0);
+  }
+
+  return [...months.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, sizes]) => {
+      sizes.sort((a, b) => a - b);
+      return {
+        label: month,
+        low: sizes[0],
+        high: sizes[sizes.length - 1],
+        mid: sizes[Math.floor(sizes.length / 2)],
+        count: sizes.length,
+      };
+    });
+}
+
+/** Size across every build of one command, oldest to newest. */
 function History({ rows }) {
   const [ref, width] = useWidth();
-  const pts = rows.map((r) => r.narSize || 0);
-  const ticks = niceTicks(Math.max(...pts, 1));
+
+  // One point per build while that is readable, one per month once it is not.
+  const grouped = rows.length > MAX_POINTS;
+  const points = grouped
+    ? byMonth(rows)
+    : rows.map((r) => ({
+        label: r.lastSeen,
+        low: r.narSize || 0,
+        high: r.narSize || 0,
+        mid: r.narSize || 0,
+        count: 1,
+      }));
+
+  const ticks = niceTicks(Math.max(...points.map((p) => p.high), 1));
   const top = ticks[ticks.length - 1];
   const inner = width - PLOT.left - PLOT.right;
-  const X = (n) => PLOT.left + (rows.length < 2 ? inner / 2 : (n / (rows.length - 1)) * inner);
+  const X = (n) =>
+    PLOT.left + (points.length < 2 ? inner / 2 : (n / (points.length - 1)) * inner);
   const Y = (v) => PLOT.top + (1 - v / top) * PLOT_H;
-  const line = pts.map((v, n) => `${n ? "L" : "M"}${X(n)},${Y(v)}`).join("");
+
+  const mid = points.map((p, n) => `${n ? "L" : "M"}${X(n)},${Y(p.mid)}`).join("");
+  // The band is the highs left to right, then the lows back again.
+  const band =
+    points.map((p, n) => `${n ? "L" : "M"}${X(n)},${Y(p.high)}`).join("") +
+    points
+      .map((p, n) => `L${X(points.length - 1 - n)},${Y(points[points.length - 1 - n].low)}`)
+      .join("") +
+    "Z";
+
+  // A label every twelfth month keeps the axis to about a decade of years.
+  const step = Math.max(1, Math.ceil(points.length / 10));
+  const labels = points
+    .map((p, n) => ({ ...p, n }))
+    .filter((p) => p.n % step === 0);
 
   return html`
     <div class="chart">
       <h3>How big it has been</h3>
+      ${grouped &&
+      html`<p class="sub">
+        ${`${compact(rows.length)} builds, grouped by month. The band is the smallest and largest build of each month, the line the middle one.`}
+      </p>`}
       <figure ref=${ref}>
         <svg height=${PLOT_H + PLOT.top + PLOT.bottom}>
           <g class="grid">
@@ -356,11 +390,22 @@ function History({ rows }) {
               ${fmtBytes(t)}
             </text>`,
           )}
-          <path
-            class="area"
-            d=${`${line}L${X(rows.length - 1)},${Y(0)}L${X(0)},${Y(0)}Z`}
-          />
-          <path class="series" d=${line} fill="none" />
+          <path class="area" d=${band} />
+          <path class="series" d=${mid} fill="none" />
+          ${!grouped &&
+          points.map(
+            (p, n) => html`<circle key=${p.label} cx=${X(n)} cy=${Y(p.mid)} r="2" />`,
+          )}
+          ${labels.map(
+            (p) => html`<text
+              key=${p.label}
+              x=${X(p.n)}
+              y=${PLOT_H + PLOT.top + 15}
+              text-anchor="middle"
+            >
+              ${p.label.slice(0, 4)}
+            </text>`,
+          )}
         </svg>
       </figure>
     </div>
@@ -372,9 +417,7 @@ export function Commands({ route, navigate }) {
   const names = useNames(system);
 
   return html`
-    ${route.pkg
-      ? html`<${PackageCommands} route=${route} navigate=${navigate} system=${system} />`
-      : route.cmd
+    ${route.cmd
       ? html`<${Versions}
           route=${route}
           navigate=${navigate}

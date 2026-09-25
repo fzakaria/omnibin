@@ -3,7 +3,7 @@
 
 import { html } from "htm/preact";
 
-import { SHARD_ERROR } from "../config.js";
+import { MULTIVERSE_URL, SHARD_ERROR } from "../config.js";
 import { compact, fmtBytes } from "../format.js";
 import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
 import { Link } from "../router.js";
@@ -13,7 +13,7 @@ import { Link } from "../router.js";
 const BAR_GAP = 0.25;
 
 /** A labelled horizontal axis of bars, with the same numbers in a table. */
-function Bars({ title, sub, rows, format = compact }) {
+function Bars({ title, sub, rows, unit, counted, format = compact }) {
   const [ref, width] = useWidth();
   const max = Math.max(...rows.map((r) => r.count), 1);
   const ticks = niceTicks(max);
@@ -68,6 +68,12 @@ function Bars({ title, sub, rows, format = compact }) {
       <details class="table">
         <summary>Table</summary>
         <table>
+          <thead>
+            <tr>
+              <th>${unit}</th>
+              <th class="num">${counted}</th>
+            </tr>
+          </thead>
           <tbody>
             ${rows.map(
               (r) => html`
@@ -85,7 +91,7 @@ function Bars({ title, sub, rows, format = compact }) {
 }
 
 /** One value per year, drawn as a line, with the table under it. */
-function Years({ title, sub, rows, value, format = compact }) {
+function Years({ title, sub, rows, value, counted, format = compact }) {
   const [ref, width] = useWidth();
   const pts = rows.map(value);
   const ticks = niceTicks(Math.max(...pts, 1));
@@ -131,6 +137,12 @@ function Years({ title, sub, rows, value, format = compact }) {
       <details class="table">
         <summary>Table</summary>
         <table>
+          <thead>
+            <tr>
+              <th>year</th>
+              <th class="num">${counted}</th>
+            </tr>
+          </thead>
           <tbody>
             ${rows.map(
               (r, n) => html`
@@ -168,19 +180,11 @@ function Leaderboards({ route, navigate, entry, system }) {
           (row) => html`
             <tr key=${`${row.attr}@${row.version}`}>
               <td>
-                <${Link}
-                  to=${{
-                    ...route,
-                    view: "commands",
-                    pkg: row.attr,
-                    ver: row.version,
-                    cmd: "",
-                    q: "",
-                  }}
-                  navigate=${navigate}
+                <a
+                  href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&ver=${encodeURIComponent(row.version)}&sys=${system}`}
                 >
                   ${`${row.attr}@${row.version}`}
-                <//>
+                </a>
               </td>
               <td class="num">${compact(row.bins)}</td>
             </tr>
@@ -274,6 +278,7 @@ export function Stats({ route, navigate, stats }) {
       sub="Mean count of commands in a package's bin/, by the year its newest build shipped. It falls, which is nixpkgs splitting packages up rather than fattening them."
       rows=${named}
       value=${(r) => r.binsPerPackage}
+      counted="mean commands per package"
       format=${(v) => v.toFixed(2)}
     />
 
@@ -282,20 +287,29 @@ export function Stats({ route, navigate, stats }) {
       sub="How many differently named executables were shipped by packages whose newest build is from that year."
       rows=${named}
       value=${(r) => r.names}
+      counted="distinct commands"
     />
 
     <${Bars}
       title="Commands per package"
       sub=${`How many executables one package ships, on ${primary.system}. Most ship exactly one.`}
       rows=${primary.binsPerPackage}
+      unit="commands in the package"
+      counted="package builds"
     />
 
-    <h2>What a cold run costs</h2>
+    <h2>How big a command is</h2>
     <p class="muted">
       Unpacked size of the newest build of each command, which is what the
-      first run downloads before its dependencies.
+      first run of it downloads before any of its dependencies.
     </p>
     <table class="plain">
+      <thead>
+        <tr>
+          <th>unpacked size</th>
+          <th class="num">commands</th>
+        </tr>
+      </thead>
       <tbody>
         ${primary.sizes.map(
           (r) => html`
