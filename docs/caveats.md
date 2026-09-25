@@ -1,5 +1,13 @@
 # Caveats
 
+**Commands can only be named from March 2017.** Store paths reach back to
+2012, but a command inside one can only be found by name where the cache
+published a file listing beside the narinfo, and Hydra did not always. A 2013
+path answers `narinfo=200 ls=404`. Those paths still fetch and still run, and
+`/nix/store/<digest>-<name>` resolves for them exactly as it does for anything
+newer; they just cannot be searched for by the command they contain. 245,532
+of 253,817 package versions are named on `x86_64-linux`.
+
 **Nothing is local.** This is a window onto cache.nixos.org, not a copy of it.
 With no network you can read the index and anything already fetched, and
 nothing else.

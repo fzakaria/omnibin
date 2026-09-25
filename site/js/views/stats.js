@@ -3,7 +3,7 @@
 
 import { html } from "htm/preact";
 
-import { MULTIVERSE_URL, SHARD_ERROR } from "../config.js";
+import { MULTIVERSE_RELEASES, MULTIVERSE_URL, SHARD_ERROR } from "../config.js";
 import { compact, fmtBytes } from "../format.js";
 import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
 import { Link } from "../router.js";
@@ -119,7 +119,7 @@ function Years({ title, sub, rows, value, counted, format = compact }) {
           </g>
           ${ticks.map(
             (t) => html`<text x=${PLOT.left - 6} y=${Y(t) + 4} text-anchor="end">
-              ${t}
+              ${compact(t)}
             </text>`,
           )}
           <path class="area" d=${`${line}L${X(rows.length - 1)},${Y(0)}L${X(0)},${Y(0)}Z`} />
@@ -164,10 +164,7 @@ function Years({ title, sub, rows, value, counted, format = compact }) {
 function Leaderboards({ route, navigate, entry, system }) {
   return html`
     <h2>Widest packages</h2>
-    <p class="muted">
-      One package, many commands. TeX and Kaldi at the top is what a healthy
-      index looks like.
-    </p>
+    <p class="muted">One package, many commands.</p>
     <table class="plain">
       <thead>
         <tr>
@@ -265,17 +262,15 @@ export function Stats({ route, navigate, stats }) {
     </table>
 
     <p class="muted">
-      Built from nixpkgs-multiverse <code>${stats.multiverseTag}</code>. Store
-      paths reach back to ${primary.firstDate}, but the commands inside them
-      can only be named from ${primary.namedFrom}: cache.nixos.org publishes a
-      file listing beside every narinfo, and it did not always. Earlier paths
-      still fetch and still run, they just cannot be searched by command name.
-      ${` ${compact(primary.pkgsNamed)} of ${compact(primary.pkgs)} package versions are named.`}
+      ${"Built from nixpkgs-multiverse "}
+      <a href=${`${MULTIVERSE_RELEASES}${stats.multiverseTag}`}>
+        <code>${stats.multiverseTag}</code>
+      </a>${"."}
     </p>
 
     <${Years}
       title="Executables per package"
-      sub="Mean count of commands in a package's bin/, by the year its newest build shipped. It falls, which is nixpkgs splitting packages up rather than fattening them."
+      sub="Mean count of commands in a package's bin/, by the year its newest build shipped."
       rows=${named}
       value=${(r) => r.binsPerPackage}
       counted="mean commands per package"

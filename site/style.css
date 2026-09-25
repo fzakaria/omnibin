@@ -1093,3 +1093,79 @@ table.plain th.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- a chart's series key (js/views/commands.js) ----------
+
+   One line per package, so the lines need naming. Four colours, because a
+   command with twenty seven providers cannot have twenty seven readable
+   lines and the chart draws only the busiest few. */
+:root {
+  --s0: #2a78d6;
+  --s1: #e07b39;
+  --s2: #2e9e6b;
+  --s3: #a05ac0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --s0: #3987e5;
+    --s1: #f09250;
+    --s2: #45b884;
+    --s3: #bb78d8;
+  }
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  font-size: 12px;
+  margin: 0.2rem 0 0.4rem;
+}
+.legend .key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.legend .swatch {
+  width: 0.7rem;
+  height: 0.2rem;
+  border-radius: 1px;
+  display: inline-block;
+}
+.legend .swatch.s0,
+.chart .series.s0 {
+  background: var(--s0);
+  stroke: var(--s0);
+}
+.legend .swatch.s1,
+.chart .series.s1 {
+  background: var(--s1);
+  stroke: var(--s1);
+}
+.legend .swatch.s2,
+.chart .series.s2 {
+  background: var(--s2);
+  stroke: var(--s2);
+}
+.legend .swatch.s3,
+.chart .series.s3 {
+  background: var(--s3);
+  stroke: var(--s3);
+}
+/* An svg path takes no background; the shared rule above sets both so one
+   selector serves the swatch and the line. */
+.chart .series.s0,
+.chart .series.s1,
+.chart .series.s2,
+.chart .series.s3 {
+  background: none;
+}
+
+/* The providers card sits above the chart and lists every package that ships
+   the command, which on a busy name is dozens. */
+details.providers {
+  margin: 0.6rem 0 1rem;
+  font-size: 14px;
+}
+details.providers #results {
+  columns: 3 14rem;
+}

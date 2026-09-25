@@ -16,9 +16,6 @@ import {
 import { useListing, useNames, usePackageCommands, useVersions } from "../data.js";
 import { compareVersions, compact, domId, fmtBytes } from "../format.js";
 
-// How many providing packages to name before giving up and saying "others".
-const ATTRS_SHOWN = 4;
-
 // How many directory entries to draw before asking. A store path can hold
 // tens of thousands of files, and nobody reads past the first screen.
 const ENTRIES_SHOWN = 40;
@@ -251,25 +248,48 @@ function Versions({ route, navigate, name, system }) {
     .filter((r) => r.lastSeen)
     .sort((a, b) => a.lastSeen.localeCompare(b.lastSeen));
   const newest = byDate[byDate.length - 1] ?? sorted[0];
-  const attrs = new Set(sorted.map((r) => r.attr));
+  const counts = new Map();
+  for (const row of sorted) counts.set(row.attr, (counts.get(row.attr) ?? 0) + 1);
+  const providers = [...counts.entries()].sort(
+    ([an, a], [bn, b]) => b - a || an.localeCompare(bn),
+  );
 
   return html`
     <h2>${name}</h2>
     <p class="muted">
       ${`${compact(sorted.length)} builds ship a `}<code>${name}</code>${` on `}
-      <code>${system}</code>${`, from ${compact(attrs.size)} different packages,
-      newest `}<code>${`${newest.attr}@${newest.version}`}</code>${`.`}
+      <code>${system}</code>${`, from ${compact(providers.length)} different
+      packages, newest `}<code>${`${newest.attr}@${newest.version}`}</code>${`.`}
     </p>
-    ${attrs.size > 1 &&
-    html`<p class="muted">
-      ${`More than one package provides this command: `}
-      ${[...attrs].slice(0, ATTRS_SHOWN).map(
-        (a, i) => html`${i ? ", " : ""}<code>${a}</code>`,
-      )}${attrs.size > ATTRS_SHOWN ? ", and others" : ""}${`. The package column
-      says which one a row came from.`}
-    </p>`}
+    ${providers.length > 1 &&
+    html`<details class="table providers">
+      <summary>
+        ${`${compact(providers.length)} packages provide this command`}
+      </summary>
+      <p class="muted">
+        ${`A command is not a package. Several can ship one, and a wrapper
+        ships the same name as the thing it wraps. The package column on each
+        row says which one that build came from.`}
+      </p>
+      <div id="results">
+        ${providers.map(
+          ([attr, count]) => html`
+            <a
+              class="pkg"
+              key=${attr}
+              href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(attr)}&sys=${system}`}
+            >
+              ${attr}
+              <span class="muted">
+                ${` · ${compact(count)} build${count === 1 ? "" : "s"}`}
+              </span>
+            </a>
+          `,
+        )}
+      </div>
+    </details>`}
 
-    ${byDate.length > 1 && html`<${History} rows=${byDate} />`}
+    ${byDate.length > 1 && html`<${History} rows=${byDate} name=${name} />`}
 
     <div class="head cols-cmd">
       <span></span><span>version</span><span>package</span><span>shipped</span
@@ -300,13 +320,27 @@ function Versions({ route, navigate, name, system }) {
   `;
 }
 
-// Past this many builds a line drawn per build is noise: firefox has 1,653 of
-// them and they land three to a pixel. Above it, builds are grouped by the
-// month they shipped and the chart draws the range and the middle of each.
+// Past this many points a line drawn per build is noise, so builds are
+// grouped by the month they shipped.
 const MAX_POINTS = 120;
 
-/** Group builds by month: the smallest, largest and middle size of each. */
-function byMonth(rows) {
+// How many packages to draw. A command with twenty seven providers cannot
+// have twenty seven readable lines, and the long tail is wrappers of wrappers.
+const MAX_SERIES = 4;
+
+/**
+ * One package's builds as points.
+ *
+ * Whether to group by month is decided once for the whole chart and passed
+ * in, never per series. Letting each decide for itself put `2017-03` keys on
+ * a busy package and `2017-03-15` keys on a quiet one, and the shared time
+ * axis then interleaved the two into different positions for the same month.
+ */
+function series(rows, grouped) {
+  if (!grouped) {
+    return rows.map((r) => ({ at: r.lastSeen, size: r.narSize || 0 }));
+  }
+
   const months = new Map();
   for (const row of rows) {
     const key = row.lastSeen.slice(0, 7);
@@ -316,63 +350,83 @@ function byMonth(rows) {
 
   return [...months.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, sizes]) => {
+    .map(([at, sizes]) => {
       sizes.sort((a, b) => a - b);
-      return {
-        label: month,
-        low: sizes[0],
-        high: sizes[sizes.length - 1],
-        mid: sizes[Math.floor(sizes.length / 2)],
-        count: sizes.length,
-      };
+      return { at, size: sizes[Math.floor(sizes.length / 2)] };
     });
 }
 
-/** Size across every build of one command, oldest to newest. */
-function History({ rows }) {
+/**
+ * Size over time, one line per package.
+ *
+ * Not one line for the command: a command usually comes from several
+ * packages, and a wrapper is three orders of magnitude smaller than the thing
+ * it wraps. `firefox` ships from a 2 MB script and from a 400 MB browser, and
+ * a single line averaged across both sits on the floor and says nothing.
+ */
+function History({ rows, name }) {
   const [ref, width] = useWidth();
 
-  // One point per build while that is readable, one per month once it is not.
-  const grouped = rows.length > MAX_POINTS;
-  const points = grouped
-    ? byMonth(rows)
-    : rows.map((r) => ({
-        label: r.lastSeen,
-        low: r.narSize || 0,
-        high: r.narSize || 0,
-        mid: r.narSize || 0,
-        count: 1,
-      }));
+  // The packages with the most builds, which is also the order they are drawn
+  // and listed in.
+  const byAttr = new Map();
+  for (const row of rows) {
+    if (!byAttr.has(row.attr)) byAttr.set(row.attr, []);
+    byAttr.get(row.attr).push(row);
+  }
+  // One decision for the whole chart, from the busiest series.
+  const grouped = Math.max(...[...byAttr.values()].map((b) => b.length)) > MAX_POINTS;
 
-  const ticks = niceTicks(Math.max(...points.map((p) => p.high), 1));
+  const attrs = [...byAttr.entries()]
+    .sort(([, a], [, b]) => b.length - a.length)
+    .slice(0, MAX_SERIES)
+    .map(([attr, builds]) => ({
+      attr,
+      builds: builds.length,
+      points: series(
+        [...builds].sort((a, b) => a.lastSeen.localeCompare(b.lastSeen)),
+        grouped,
+      ),
+    }));
+
+  // One time axis for every line, so they are comparable left to right.
+  const stamps = [...new Set(attrs.flatMap((a) => a.points.map((p) => p.at)))].sort();
+  const index = new Map(stamps.map((at, i) => [at, i]));
+
+  const ticks = niceTicks(
+    Math.max(...attrs.flatMap((a) => a.points.map((p) => p.size)), 1),
+  );
   const top = ticks[ticks.length - 1];
   const inner = width - PLOT.left - PLOT.right;
-  const X = (n) =>
-    PLOT.left + (points.length < 2 ? inner / 2 : (n / (points.length - 1)) * inner);
+  const X = (i) =>
+    PLOT.left + (stamps.length < 2 ? inner / 2 : (i / (stamps.length - 1)) * inner);
   const Y = (v) => PLOT.top + (1 - v / top) * PLOT_H;
 
-  const mid = points.map((p, n) => `${n ? "L" : "M"}${X(n)},${Y(p.mid)}`).join("");
-  // The band is the highs left to right, then the lows back again.
-  const band =
-    points.map((p, n) => `${n ? "L" : "M"}${X(n)},${Y(p.high)}`).join("") +
-    points
-      .map((p, n) => `L${X(points.length - 1 - n)},${Y(points[points.length - 1 - n].low)}`)
-      .join("") +
-    "Z";
-
-  // A label every twelfth month keeps the axis to about a decade of years.
-  const step = Math.max(1, Math.ceil(points.length / 10));
-  const labels = points
-    .map((p, n) => ({ ...p, n }))
-    .filter((p) => p.n % step === 0);
+  const labels = [];
+  for (const [i, at] of stamps.entries()) {
+    const year = at.slice(0, 4);
+    if (labels.length === 0 || labels[labels.length - 1].year !== year) {
+      labels.push({ year, i });
+    }
+  }
 
   return html`
     <div class="chart">
       <h3>How big it has been</h3>
-      ${grouped &&
-      html`<p class="sub">
-        ${`${compact(rows.length)} builds, grouped by month. The band is the smallest and largest build of each month, the line the middle one.`}
-      </p>`}
+      <p class="sub">
+        ${`Unpacked size of each package that ships a ${name}. A wrapper and the package it wraps both ship the command and are not the same size.`}
+      </p>
+      <div class="legend">
+        ${attrs.map(
+          (a, n) => html`
+            <span class="key" key=${a.attr}>
+              <span class=${`swatch s${n}`}></span>
+              ${a.attr}
+              <span class="muted">${` ${compact(a.builds)}`}</span>
+            </span>
+          `,
+        )}
+      </div>
       <figure ref=${ref}>
         <svg height=${PLOT_H + PLOT.top + PLOT.bottom}>
           <g class="grid">
@@ -390,20 +444,24 @@ function History({ rows }) {
               ${fmtBytes(t)}
             </text>`,
           )}
-          <path class="area" d=${band} />
-          <path class="series" d=${mid} fill="none" />
-          ${!grouped &&
-          points.map(
-            (p, n) => html`<circle key=${p.label} cx=${X(n)} cy=${Y(p.mid)} r="2" />`,
+          ${attrs.map(
+            (a, n) => html`<path
+              key=${a.attr}
+              class=${`series s${n}`}
+              fill="none"
+              d=${a.points
+                .map((p, i) => `${i ? "L" : "M"}${X(index.get(p.at))},${Y(p.size)}`)
+                .join("")}
+            />`,
           )}
           ${labels.map(
-            (p) => html`<text
-              key=${p.label}
-              x=${X(p.n)}
+            (s) => html`<text
+              key=${s.year}
+              x=${X(s.i)}
               y=${PLOT_H + PLOT.top + 15}
               text-anchor="middle"
             >
-              ${p.label.slice(0, 4)}
+              ${s.year}
             </text>`,
           )}
         </svg>

@@ -9,6 +9,10 @@ export const REPO = "https://github.com/fzakaria/omnibin";
 // row links to the package in the index it came from and to a map of the
 // closure it pulls.
 export const MULTIVERSE_URL = "https://nixmultiverse.com/";
+// The cut a database was built from, so the page can point at the exact
+// artifacts rather than only naming them.
+export const MULTIVERSE_RELEASES =
+  "https://github.com/fzakaria/nixpkgs-multiverse/releases/tag/";
 export const SEENIX_URL = "https://seenix.dev/";
 export const TRYNIX_URL = "https://trynix.dev/";
 
