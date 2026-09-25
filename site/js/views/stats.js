@@ -3,7 +3,7 @@
 
 import { html } from "htm/preact";
 
-import { MULTIVERSE_URL, SHARD_ERROR } from "../config.js";
+import { SHARD_ERROR } from "../config.js";
 import { compact, fmtBytes } from "../format.js";
 import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
 import { Link } from "../router.js";
@@ -65,18 +65,21 @@ function Bars({ title, sub, rows, format = compact }) {
           )}
         </svg>
       </figure>
-      <table class="rows plain">
-        <tbody>
-          ${rows.map(
-            (r) => html`
-              <tr key=${r.label}>
-                <td>${r.label}</td>
-                <td class="num">${format(r.count)}</td>
-              </tr>
-            `,
-          )}
-        </tbody>
-      </table>
+      <details class="table">
+        <summary>Table</summary>
+        <table>
+          <tbody>
+            ${rows.map(
+              (r) => html`
+                <tr key=${r.label}>
+                  <td>${r.label}</td>
+                  <td class="num">${format(r.count)}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </details>
     </div>
   `;
 }
@@ -125,18 +128,21 @@ function Years({ title, sub, rows, value, format = compact }) {
           )}
         </svg>
       </figure>
-      <table class="rows plain">
-        <tbody>
-          ${rows.map(
-            (r, n) => html`
-              <tr key=${r.year}>
-                <td>${r.year}</td>
-                <td class="num">${format(pts[n])}</td>
-              </tr>
-            `,
-          )}
-        </tbody>
-      </table>
+      <details class="table">
+        <summary>Table</summary>
+        <table>
+          <tbody>
+            ${rows.map(
+              (r, n) => html`
+                <tr key=${r.year}>
+                  <td>${r.year}</td>
+                  <td class="num">${format(pts[n])}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </details>
     </div>
   `;
 }
@@ -150,7 +156,7 @@ function Leaderboards({ route, navigate, entry, system }) {
       One package, many commands. TeX and Kaldi at the top is what a healthy
       index looks like.
     </p>
-    <table class="rows plain">
+    <table class="plain">
       <thead>
         <tr>
           <th>package</th>
@@ -162,10 +168,19 @@ function Leaderboards({ route, navigate, entry, system }) {
           (row) => html`
             <tr key=${`${row.attr}@${row.version}`}>
               <td>
-                <a href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&sys=${system}`}>
-                  ${row.attr}
-                </a>
-                <span class="muted">${`@${row.version}`}</span>
+                <${Link}
+                  to=${{
+                    ...route,
+                    view: "commands",
+                    pkg: row.attr,
+                    ver: row.version,
+                    cmd: "",
+                    q: "",
+                  }}
+                  navigate=${navigate}
+                >
+                  ${`${row.attr}@${row.version}`}
+                <//>
               </td>
               <td class="num">${compact(row.bins)}</td>
             </tr>
@@ -179,7 +194,7 @@ function Leaderboards({ route, navigate, entry, system }) {
       The commands nixpkgs has shipped the most builds of. Each one links to
       all of them.
     </p>
-    <table class="rows plain">
+    <table class="plain">
       <thead>
         <tr>
           <th>command</th>
@@ -220,7 +235,7 @@ export function Stats({ route, navigate, stats }) {
 
   return html`
     <h2>What is in here</h2>
-    <table class="rows plain">
+    <table class="plain">
       <thead>
         <tr>
           <th>system</th>
@@ -280,7 +295,7 @@ export function Stats({ route, navigate, stats }) {
       Unpacked size of the newest build of each command, which is what the
       first run downloads before its dependencies.
     </p>
-    <table class="rows plain">
+    <table class="plain">
       <tbody>
         ${primary.sizes.map(
           (r) => html`

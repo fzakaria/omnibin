@@ -5,6 +5,16 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
+  # The site is the expensive build in this flake: it projects two 250 MB
+  # databases into 147 MB of shards every time the data moves. The cache means
+  # a contributor, and the pages deploy, fetch that rather than rebuild it.
+  nixConfig = {
+    extra-substituters = [ "https://omnibin.cachix.org" ];
+    extra-trusted-public-keys = [
+      "omnibin.cachix.org-1:HWeLv8+LfqLqLDOoQJmvmW7m0ug1Fne/DYaxgdECHgw="
+    ];
+  };
+
   outputs =
     { self, nixpkgs }:
     let

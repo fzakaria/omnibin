@@ -38,6 +38,12 @@ def counts(db):
         "bytes": row("SELECT coalesce(sum(nar_size), 0) FROM paths"),
         "oldest": row("SELECT min(last_seen) FROM pkgs WHERE last_seen IS NOT NULL"),
         "newest": row("SELECT max(last_seen) FROM pkgs WHERE last_seen IS NOT NULL"),
+        # The first date whose packages have commands anybody can name. Paths
+        # older than this are addressable and carry no published listing.
+        "namedFrom": row(
+            """SELECT min(p.last_seen) FROM pkgs p JOIN paths s USING (digest)
+                WHERE s.has_listing = 1 AND p.last_seen IS NOT NULL"""
+        ),
     }
 
 
@@ -77,10 +83,15 @@ def readme_block(counts_by_system, tag):
 
     first = counts_by_system[0]
     total = sum(c["bytes"] for c in counts_by_system) / 1e12
+
+    # Two date ranges rather than one, because they are different claims and
+    # stating only the wider one reads as a promise the index cannot keep.
     lines += [
         "",
-        f"{first['oldest']} to {first['newest']}, {total:,.1f} TB of unpacked bytes "
-        f"behind it, built from nixpkgs-multiverse `{tag}`.",
+        f"Store paths from {first['oldest']} to {first['newest']}, "
+        f"{total:,.1f} TB unpacked. Commands are nameable from "
+        f"{first['namedFrom']} on, which is when Hydra started publishing "
+        f"file listings. Built from nixpkgs-multiverse `{tag}`.",
         "",
     ]
     return "\n".join(lines)
@@ -188,9 +199,13 @@ def main():
 
     head, rest = text.split(BEGIN, 1)
     _, tail = rest.split(END, 1)
-    open(readme, "w").write(
-        head + BEGIN + readme_block(counts_by_system, multiverse_tag) + END + tail
-    )
+
+    # Build the whole file before opening it for writing. Opening first means
+    # a failure anywhere in readme_block leaves an empty README behind, which
+    # is how this script once deleted the one it was updating.
+    updated = head + BEGIN + readme_block(counts_by_system, multiverse_tag) + END + tail
+    with open(readme, "w") as f:
+        f.write(updated)
     print(f"{readme}: status block updated")
 
 

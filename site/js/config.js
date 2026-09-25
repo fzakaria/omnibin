@@ -10,6 +10,7 @@ export const REPO = "https://github.com/fzakaria/omnibin";
 // closure it pulls.
 export const MULTIVERSE_URL = "https://nixmultiverse.com/";
 export const SEENIX_URL = "https://seenix.dev/";
+export const TRYNIX_URL = "https://trynix.dev/";
 
 export const STORE_DIR = "/nix/store";
 

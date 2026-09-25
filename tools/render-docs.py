@@ -361,8 +361,8 @@ def shell(title, body, nav, name, store_path, origin):
       <nav class="site">
         <a href="../">Index</a>
         <a class="active" href="./">Documentation</a>
-        <a href="https://nixmultiverse.com/" title="nixpkgs-multiverse: the index every store path here comes from">multiverse</a>
-        <a href="https://seenix.dev/" title="seenix: every byte of a closure, one pixel each">seenix</a>
+        <a href="https://nixmultiverse.com/" title="nixpkgs-multiverse: the index every store path here comes from">Multiverse</a>
+        <a href="https://seenix.dev/" title="seenix: every byte of a closure, one pixel each">Seenix</a>
         <a href="{REPO}">GitHub</a>
       </nav>
     </header>

@@ -19,6 +19,9 @@ filesystem, and a package's bytes are fetched from
 [cache.nixos.org](https://cache.nixos.org) the first time something reads a
 file inside it.
 
+Every command it knows about is browsable at **<https://omnibin.dev/>**, with
+every version of each, what it costs to fetch, and what is inside it.
+
 **Documentation:** [Design](./docs/design.md) ·
 [Using it](./docs/using.md) ·
 [Building the index](./docs/building-the-index.md) ·
@@ -33,10 +36,10 @@ file inside it.
 
 | system          | executables | `name@version` | package versions | store paths |
 | --------------- | ----------- | -------------- | ---------------- | ----------- |
-| `aarch64-linux` | 47,672      | 791,946        | 224,246          | 624,477     |
+| `aarch64-linux` | 47,644      | 791,507        | 224,246          | 619,270     |
 | `x86_64-linux`  | 51,468      | 881,933        | 253,817          | 619,915     |
 
-2012-07-05 to 2026-09-08, 60.8 TB of unpacked bytes behind it, built from nixpkgs-multiverse `data-20260924`.
+Store paths from 2012-07-05 to 2026-09-08, 60.7 TB unpacked. Commands are nameable from 2017-03-23 on, which is when Hydra started publishing file listings. Built from nixpkgs-multiverse `data-20260924`.
 <!-- END index-status -->
 
 ## Why
@@ -56,6 +59,11 @@ built for it, so an old version costs a download rather than a build. 610
 packages have shipped something called `python3`, and reaching any of them is
 one command.
 
+The store paths reach back to 2012. The commands inside them can only be named
+from March 2017, because that is when Hydra started publishing a file listing
+beside each narinfo. Older paths still fetch and still run; they just cannot be
+searched for by command name. See [caveats](./docs/caveats.md).
+
 ## How it works
 
 Hydra publishes a `.ls` file beside every narinfo on cache.nixos.org: the
@@ -63,7 +71,9 @@ complete listing of a store path's contents as JSON, with each entry's type,
 size, executable bit and symlink target. That is the metadata half of a Nix
 store, already served, at about nine kilobytes per path. omnibin crawls those
 listings once, which is the only data this project adds to what
-[nixpkgs-multiverse] already publishes, and keeps them in a database.
+[nixpkgs-multiverse] already publishes, and keeps them in a database. That
+crawl is 233,690 store paths and **282 million files**, and it is what every
+answer on this page and on the site is made of.
 
 ```mermaid
 flowchart LR

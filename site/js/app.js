@@ -16,22 +16,20 @@ import { Stats } from "./views/stats.js";
 /** The system picker. A store path belongs to one system, so this is not a
  *  filter over one table but a choice of which table to read. */
 function Systems({ route, navigate }) {
-  const current = systemOf(route);
   return html`
-    <div class="systems">
-      ${SYSTEMS.map(
-        (s) => html`
-          <${Link}
-            key=${s}
-            class=${s === current ? "active" : ""}
-            to=${{ ...route, sys: s === SYSTEMS[0] ? "" : s }}
-            navigate=${navigate}
-          >
-            ${s}
-          <//>
-        `,
-      )}
-    </div>
+    <label class="syspick">
+      <span class="syspick-label">store paths for</span>
+      <select
+        value=${systemOf(route)}
+        onChange=${(e) =>
+          navigate({
+            ...route,
+            sys: e.target.value === SYSTEMS[0] ? "" : e.target.value,
+          })}
+      >
+        ${SYSTEMS.map((s) => html`<option key=${s} value=${s}>${s}</option>`)}
+      </select>
+    </label>
   `;
 }
 

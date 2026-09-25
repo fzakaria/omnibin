@@ -38,7 +38,14 @@ CREATE TABLE paths(
   nar_url   TEXT NOT NULL,
   nar_size  INTEGER,
   file_size INTEGER,
-  has_listing INTEGER NOT NULL DEFAULT 0
+  has_listing INTEGER NOT NULL DEFAULT 0,
+  -- What the crawled listing says is inside. These are the crawl's own
+  -- numbers rather than anything the cache states about a path, and they are
+  -- what lets a page describe a store path without fetching one.
+  files     INTEGER,
+  dirs      INTEGER,
+  links     INTEGER,
+  top_dirs  TEXT
 );
 
 CREATE TABLE pkgs(
@@ -167,6 +174,36 @@ def resolve_info_files(paths):
     return files
 
 
+def walk_listing(root):
+    """Count what is in a listing, and name its top level.
+
+    The crawl already holds every one of these trees, so the shape of a store
+    path is a thing this index knows rather than a thing a reader has to go
+    and fetch. One pass, counting regular files, directories and symlinks, and
+    keeping the top-level directory names.
+    """
+    files = dirs = links = 0
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        for child in (node.get("entries") or {}).values():
+            kind = child.get("type")
+            if kind == "directory":
+                dirs += 1
+                stack.append(child)
+            elif kind == "symlink":
+                links += 1
+            else:
+                files += 1
+
+    top = sorted(
+        name
+        for name, child in (root.get("entries") or {}).items()
+        if child.get("type") == "directory"
+    )
+    return files, dirs, links, ",".join(top)
+
+
 def bin_entries(root):
     """The names in a listing's top-level bin/ directory.
 
@@ -288,7 +325,8 @@ def build(args):
     listed = []
     by_name = {}
     for digest, root in read_listings(args.listings):
-        listed.append((digest,))
+        files, dirs, links, top = walk_listing(root)
+        listed.append((files, dirs, links, top, digest))
         for owner in owners.get(digest, ()):
             for name in bin_entries(root):
                 bins.append((name, owner["attr"], owner["version"], digest))
@@ -297,7 +335,12 @@ def build(args):
     db.executemany(
         "INSERT OR IGNORE INTO bins(name, attr, version, digest) VALUES (?,?,?,?)", bins
     )
-    db.executemany("UPDATE paths SET has_listing = 1 WHERE digest = ?", listed)
+    db.executemany(
+        """UPDATE paths
+              SET has_listing = 1, files = ?, dirs = ?, links = ?, top_dirs = ?
+            WHERE digest = ?""",
+        listed,
+    )
     print(
         f"listings: {len(listed)}  bins: {len(bins)}  names: {len(by_name)}",
         file=sys.stderr,

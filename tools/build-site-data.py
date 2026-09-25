@@ -205,18 +205,65 @@ def write_names(db, out, system):
     return len(names)
 
 
+def has_columns(db, table, *names):
+    """Whether a table carries these columns.
+
+    A published database is pinned, so a schema change here lands before the
+    release that satisfies it does. Rather than fail every consumer in that
+    window, the newer fields are treated as optional and the site does without
+    them until the pins catch up.
+    """
+    present = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+    return all(name in present for name in names)
+
+
 def write_bins(db, out, system):
-    """Every version of every executable, split by the name's first two chars."""
+    """Every version of every executable, split by the name's first two chars.
+
+    Each row carries what the crawl found inside that store path: how many
+    files, directories and symlinks, and which top-level directories. That is
+    this project's own data rather than anything restated from the cache, and
+    it is what lets a row describe a path without anybody fetching one.
+    """
+    shape = has_columns(db, "paths", "files", "dirs", "links", "top_dirs")
+    columns = (
+        "p.files, p.dirs, p.links, p.top_dirs" if shape else "NULL, NULL, NULL, NULL"
+    )
+
     shards = defaultdict(lambda: defaultdict(list))
-    for name, attr, version, digest, store_name, nar_size, last_seen in db.execute(
-        """SELECT b.name, b.attr, b.version, b.digest, p.name, p.nar_size, k.last_seen
-             FROM bins b
-             JOIN paths p ON p.digest = b.digest
-             JOIN pkgs k ON k.attr = b.attr AND k.version = b.version
-            ORDER BY b.name, b.attr, b.version"""
+    for (
+        name,
+        attr,
+        version,
+        digest,
+        store_name,
+        nar_size,
+        last_seen,
+        files,
+        dirs,
+        links,
+        top_dirs,
+    ) in db.execute(
+        f"""SELECT b.name, b.attr, b.version, b.digest, p.name, p.nar_size,
+                   k.last_seen, {columns}
+              FROM bins b
+              JOIN paths p ON p.digest = b.digest
+              JOIN pkgs k ON k.attr = b.attr AND k.version = b.version
+             ORDER BY b.name, b.attr, b.version"""
     ):
         shards[shard_of(name)][name].append(
-            [attr, version, digest, store_name, nar_size, last_seen]
+            [
+                attr,
+                version,
+                digest,
+                store_name,
+                nar_size,
+                last_seen,
+                files,
+                dirs,
+                links,
+                top_dirs,
+            ]
         )
 
     directory = os.path.join(out, f"bins-{system}")
@@ -224,6 +271,29 @@ def write_bins(db, out, system):
     for shard, names in shards.items():
         with open(os.path.join(directory, f"{shard}.json"), "w") as f:
             json.dump(names, f, separators=(",", ":"))
+
+    return len(shards)
+
+
+def write_packages(db, out, system):
+    """Which commands each build ships, split by the package's first two chars.
+
+    A command page opens one row at a time and wants to say what else came in
+    the same package. That is a fact about the package rather than about the
+    command, so it lives in its own shard and is fetched only when a row is
+    opened.
+    """
+    shards = defaultdict(lambda: defaultdict(dict))
+    for attr, version, name in db.execute(
+        "SELECT attr, version, name FROM bins ORDER BY attr, version, name"
+    ):
+        shards[shard_of(attr)][attr].setdefault(version, []).append(name)
+
+    directory = os.path.join(out, f"pkgs-{system}")
+    os.makedirs(directory, exist_ok=True)
+    for shard, attrs in shards.items():
+        with open(os.path.join(directory, f"{shard}.json"), "w") as f:
+            json.dump(attrs, f, separators=(",", ":"))
 
     return len(shards)
 
@@ -262,7 +332,10 @@ def main():
 
         names = write_names(db, args.out, system)
         shards = write_bins(db, args.out, system)
-        print(f"{system}: {names} names, {shards} shards")
+        packages = write_packages(db, args.out, system)
+        print(
+            f"{system}: {names} names, {shards} bin shards, {packages} package shards"
+        )
 
     with open(os.path.join(args.out, "stats.json"), "w") as f:
         json.dump(stats, f, separators=(",", ":"))

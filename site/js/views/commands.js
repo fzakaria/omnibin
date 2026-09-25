@@ -11,8 +11,9 @@ import {
   SHARD_ERROR,
   STORE_DIR,
   SYSTEMS,
+  TRYNIX_URL,
 } from "../config.js";
-import { useListing, useNames, useVersions } from "../data.js";
+import { useListing, useNames, usePackageCommands, useVersions } from "../data.js";
 import { compareVersions, compact, domId, fmtBytes } from "../format.js";
 
 // How many providing packages to name before giving up and saying "others".
@@ -21,6 +22,9 @@ const ATTRS_SHOWN = 4;
 // How many directory entries to draw before asking. A store path can hold
 // tens of thousands of files, and nobody reads past the first screen.
 const ENTRIES_SHOWN = 40;
+
+// How many of a build's other commands to name before saying "and more".
+const SIBLINGS_SHOWN = 8;
 import { Link, Nav } from "../router.js";
 import { Cmd, Row } from "../ui.js";
 import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
@@ -93,6 +97,41 @@ function Search({ route, navigate, names }) {
   `;
 }
 
+/** Every command one build of a package ships, from this index. */
+function PackageCommands({ route, navigate, system }) {
+  const commands = usePackageCommands(system, route.pkg, route.ver);
+
+  if (commands === null) return html`<p class="muted">Loading…</p>`;
+  if (commands === SHARD_ERROR)
+    return html`<p class="muted">Could not load that package.</p>`;
+  if (commands.length === 0)
+    return html`<p class="muted">
+      ${`Nothing recorded for ${route.pkg}@${route.ver} on ${system}.`}
+    </p>`;
+
+  return html`
+    <h2>${`${route.pkg}@${route.ver}`}</h2>
+    <p class="muted">
+      ${`${compact(commands.length)} command${commands.length === 1 ? "" : "s"} on `}
+      <code>${system}</code>${`. Each one is every version of itself.`}
+    </p>
+    <div id="results">
+      ${commands.map(
+        (c) => html`
+          <${Link}
+            class="pkg"
+            key=${c}
+            to=${{ ...route, view: "commands", cmd: c, pkg: "", ver: "" }}
+            navigate=${navigate}
+          >
+            ${c}
+          <//>
+        `,
+      )}
+    </div>
+  `;
+}
+
 /** One directory of a listing, with its children expandable underneath. */
 function Dir({ node, path, depth }) {
   const [open, setOpen] = useState(depth === 0 ? ["bin"] : []);
@@ -150,12 +189,22 @@ function Listing({ digest }) {
       anything built before about 2017. The path still fetches and still runs.
     </p>`;
 
-  return html`<${Dir} node=${root} path="" depth=${0} />`;
+  return html`
+    <p class="muted">
+      Fetched from cache.nixos.org as you opened this, rather than served from
+      here: the full tree of every path would be gigabytes. The counts above
+      come from this index.
+    </p>
+    <${Dir} node=${root} path="" depth=${0} />
+  `;
 }
 
-/** One version row, expanded: what to type, and where to look next. */
+/** One version row, expanded: what to type, what is in it, where to go. */
 function VersionDetail({ name, row, system }) {
   const path = `${STORE_DIR}/${row.digest}-${row.storeName}`;
+  const siblings = usePackageCommands(system, row.attr, row.version);
+  const others = Array.isArray(siblings) ? siblings.filter((c) => c !== name) : [];
+
   return html`
     <div class="detail">
       <${Cmd} text=${`${name}@${row.version}`} caption="on PATH inside omnibin" />
@@ -166,18 +215,43 @@ function VersionDetail({ name, row, system }) {
       <p class="muted">
         <code class="path">${path}</code>
       </p>
+
+      ${row.files !== null &&
+      row.files !== undefined &&
+      html`<p class="muted">
+        ${`${compact(row.files)} files, ${compact(row.dirs)} directories and ${compact(row.links)} symlinks`}
+        ${row.topDirs.length > 0 &&
+        html`${", in "}${row.topDirs.map(
+          (d, i) => html`${i ? ", " : ""}<code>${`${d}/`}</code>`,
+        )}`}
+      </p>`}
+
+      ${others.length > 0 &&
+      html`<p class="muted">
+        ${`This build also ships ${compact(others.length)} other command${others.length === 1 ? "" : "s"}: `}
+        ${others.slice(0, SIBLINGS_SHOWN).map(
+          (c, i) => html`${i ? ", " : ""}<code>${c}</code>`,
+        )}${others.length > SIBLINGS_SHOWN ? ", and more" : ""}
+      </p>`}
+
       <p class="muted">
-        <a href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&sys=${system}`}>
-          ${`${row.attr} in nixpkgs-multiverse`}
+        <a href=${`${TRYNIX_URL}?path=${encodeURIComponent(path)}&boot=1`}>
+          boot it in your browser
         </a>
         ${" · "}
         <a href=${`${SEENIX_URL}?path=${encodeURIComponent(path)}`}>
-          map its closure in seenix
+          map its closure
+        </a>
+        ${" · "}
+        <a href=${`${MULTIVERSE_URL}?pkg=${encodeURIComponent(row.attr)}&sys=${system}`}>
+          ${`${row.attr} in the index`}
         </a>
       </p>
 
-      <h4>What is in it</h4>
-      <${Listing} digest=${row.digest} />
+      <details class="table">
+        <summary>Every file</summary>
+        <${Listing} digest=${row.digest} />
+      </details>
     </div>
   `;
 }
@@ -207,7 +281,7 @@ function Versions({ route, navigate, name, system }) {
   const attrs = new Set(sorted.map((r) => r.attr));
 
   return html`
-    <h2><code>${name}</code></h2>
+    <h2>${name}</h2>
     <p class="muted">
       ${`${compact(sorted.length)} builds ship a `}<code>${name}</code>${` on `}
       <code>${system}</code>${`, from ${compact(attrs.size)} different packages,
@@ -262,17 +336,9 @@ function History({ rows }) {
   const Y = (v) => PLOT.top + (1 - v / top) * PLOT_H;
   const line = pts.map((v, n) => `${n ? "L" : "M"}${X(n)},${Y(v)}`).join("");
 
-  // Only the ends get a label. Every build would be unreadable at 1,653 of
-  // them, and the two that matter are where it started and where it is.
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-
   return html`
     <div class="chart">
-      <h3>What it costs to run, over time</h3>
-      <p class="sub">
-        ${`Unpacked size of each build, oldest first. ${first.lastSeen ?? "?"} to ${last.lastSeen ?? "?"}.`}
-      </p>
+      <h3>How big it has been</h3>
       <figure ref=${ref}>
         <svg height=${PLOT_H + PLOT.top + PLOT.bottom}>
           <g class="grid">
@@ -306,20 +372,15 @@ export function Commands({ route, navigate }) {
   const names = useNames(system);
 
   return html`
-    ${route.cmd
-      ? html`
-          <p class="muted">
-            <${Link} to=${{ ...route, cmd: "" }} navigate=${navigate}>
-              ← all executables
-            <//>
-          </p>
-          <${Versions}
-            route=${route}
-            navigate=${navigate}
-            name=${route.cmd}
-            system=${system}
-          />
-        `
+    ${route.pkg
+      ? html`<${PackageCommands} route=${route} navigate=${navigate} system=${system} />`
+      : route.cmd
+      ? html`<${Versions}
+          route=${route}
+          navigate=${navigate}
+          name=${route.cmd}
+          system=${system}
+        />`
       : html`<${Search} route=${route} navigate=${navigate} names=${names} />`}
   `;
 }

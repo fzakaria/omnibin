@@ -57,7 +57,8 @@ nav.site {
   margin: 0;
   border: 0;
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
   font-size: 14px;
 }
 nav.site a {
@@ -926,6 +927,65 @@ footer {
     text-align: right;
     font-weight: 500;
   }
+
+  /* A command row's last cell is its download size, not a long identifier, so
+     it stays on the line with everything else rather than claiming its own. */
+  .row.cols-cmd > :last-child {
+    flex-basis: auto;
+    padding-left: 0;
+    margin-left: auto;
+  }
+
+  /* The leaderboards and the totals are fixed-column tables, which is exactly
+     what does not fit a phone. Each row becomes a card: the label takes the
+     line, the number sits against the right edge of it. */
+  table.plain,
+  details.table table {
+    width: 100%;
+    display: block;
+  }
+  table.plain thead,
+  details.table table thead {
+    display: none;
+  }
+  table.plain tbody,
+  details.table table tbody {
+    display: block;
+  }
+  table.plain tr,
+  details.table table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.1rem 0.6rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  table.plain td,
+  details.table table td {
+    display: block;
+    padding: 0;
+    border: none;
+  }
+  table.plain td:first-child,
+  details.table table td:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  table.plain td:last-child,
+  details.table table td:last-child {
+    margin-left: auto;
+    text-align: right;
+  }
+
+  /* A store path is one unbreakable token wider than any phone. Let it wrap
+     rather than push the document past the viewport. */
+  .path,
+  .tree li {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* One build of a command: the disclosure, the version, the package it came
@@ -971,4 +1031,55 @@ footer {
 .tree .exe {
   color: var(--fg);
   font-weight: 600;
+}
+
+/* ---------- a chart's numbers, on request (js/views/stats.js) ----------
+
+   Every chart carries the values it draws, because no number should be
+   reachable only by looking at a line. They fold away so the page stays a
+   page rather than a spreadsheet. */
+details.table {
+  margin: 0.4rem 0 1rem;
+  font-size: 13px;
+}
+details.table summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+details.table table {
+  border-collapse: collapse;
+  margin-top: 0.3rem;
+}
+details.table td {
+  padding: 0.1rem 1.2rem 0.1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ---------- plain data tables (js/views/stats.js) ----------
+
+   The leaderboards and the per system totals. Not the disclosure rows above,
+   which are a grid; these are ordinary tables that want ordinary alignment. */
+table.plain {
+  border-collapse: collapse;
+  margin: 0.3rem 0 1rem;
+  font-size: 14px;
+}
+table.plain th {
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+table.plain th,
+table.plain td {
+  padding: 0.2rem 1.2rem 0.2rem 0;
+}
+table.plain tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--line);
+}
+/* Counts compare down a column, so they line up on the right and use the
+   font's tabular digits. */
+table.plain .num,
+table.plain th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

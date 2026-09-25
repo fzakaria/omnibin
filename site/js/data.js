@@ -51,6 +51,10 @@ const DIGEST = 2;
 const STORE_NAME = 3;
 const NAR_SIZE = 4;
 const LAST_SEEN = 5;
+const FILES = 6;
+const DIRS = 7;
+const LINKS = 8;
+const TOP_DIRS = 9;
 
 export const asVersion = (row) => ({
   attr: row[ATTR],
@@ -59,6 +63,12 @@ export const asVersion = (row) => ({
   storeName: row[STORE_NAME],
   narSize: row[NAR_SIZE],
   lastSeen: row[LAST_SEEN],
+  // What the crawl found inside this path. Present for any path the cache
+  // published a listing for, which is everything from 2017 on.
+  files: row[FILES],
+  dirs: row[DIRS],
+  links: row[LINKS],
+  topDirs: row[TOP_DIRS] ? row[TOP_DIRS].split(",") : [],
 });
 
 /** Every version of one executable, or SHARD_ERROR, or null while loading. */
@@ -80,6 +90,42 @@ export function useVersions(system, name) {
       live = false;
     };
   }, [system, name]);
+
+  return state;
+}
+
+/** Which commands each build of one package ships, from this index. */
+export function usePackageCommands(system, attr, version) {
+  const [state, setState] = useState(null);
+
+  useEffect(() => {
+    if (!attr) {
+      setState(null);
+      return;
+    }
+
+    const path = `pkgs-${system}/${shardOf(attr)}.json`;
+    if (!shardCache.has(path)) {
+      shardCache.set(
+        path,
+        fetch(path).then((r) => {
+          if (r.status === HTTP_NOT_FOUND) return {};
+          if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+          return r.json();
+        }),
+      );
+    }
+
+    let live = true;
+    setState(null);
+    shardCache
+      .get(path)
+      .then((shard) => live && setState(shard[attr]?.[version] ?? []))
+      .catch(() => live && setState(SHARD_ERROR));
+    return () => {
+      live = false;
+    };
+  }, [system, attr, version]);
 
   return state;
 }
