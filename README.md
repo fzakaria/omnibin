@@ -157,9 +157,16 @@ mounts on start, so it works as a base for anything that wants a full toolbox
 without choosing one:
 
 ```dockerfile
+# syntax=docker/dockerfile:1
 FROM fmzakari/omnibin:latest
 
-CMD ["bash", "-lc", "python3@3.6.2 -c 'import sys; print(sys.version.split()[0])'; jq --version"]
+COPY <<'SH' /demo.sh
+python3@3.6.2 -c 'import sys; print(sys.version.split()[0])'
+jq --version
+gcc@10.2.0 --version | head -1
+SH
+
+CMD ["bash", "/demo.sh"]
 ```
 
 ```console
@@ -167,7 +174,10 @@ $ docker build -t example .
 $ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN example
 3.6.2
 jq-1.8.1
+gcc (GCC) 10.2.0
 ```
+
+Three eras of toolchain in one image that contains none of them.
 
 ```console
 $ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN fmzakari/omnibin

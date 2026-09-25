@@ -3,8 +3,8 @@
 # data-pins.json, and tools/fetch-data.sh puts them here.
 data/
 
-# Run logs.
-crawl.log
+# Run logs. Named by what produced them, so the glob rather than a list.
+*.log
 
 # Build outputs and caches.
 result
