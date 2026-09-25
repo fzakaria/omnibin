@@ -49,6 +49,13 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
+      # Pushes what this run builds, so the next one and the pages deploy do
+      # not rebuild the site data from the databases again.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: omnibin
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
       # A runner ships with tens of gigabytes of toolchains this job never
       # uses, and the listings need the room.
       - name: free disk

@@ -19,6 +19,13 @@ jobs:
           nix fmt
           git diff --exit-code
 
+      # Pushes what this run builds, so the next one and the pages deploy do
+      # not rebuild the site data from the databases again.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: omnibin
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
       # House style, checked rather than remembered: no em dashes, none of the
       # vocabulary that marks machine written prose. Code comments count.
       - name: prose
