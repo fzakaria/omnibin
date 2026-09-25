@@ -4,6 +4,7 @@
 import { html, useMemo, useState, useEffect } from "htm/preact";
 
 import {
+  MAX_PACKAGE_RESULTS,
   MAX_RESULTS,
   MIN_QUERY,
   MULTIVERSE_URL,
@@ -13,7 +14,13 @@ import {
   SYSTEMS,
   TRYNIX_URL,
 } from "../config.js";
-import { useListing, useNames, usePackageCommands, useVersions } from "../data.js";
+import {
+  useAttrs,
+  useListing,
+  useNames,
+  usePackageCommands,
+  useVersions,
+} from "../data.js";
 import { compareVersions, compact, domId, fmtBytes } from "../format.js";
 
 // How many directory entries to draw before asking. A store path can hold
@@ -29,36 +36,79 @@ import { niceTicks, PLOT, PLOT_H, useWidth } from "../charts.js";
 /** The system a route is showing, which is the first one until asked. */
 export const systemOf = (route) => route.sys || SYSTEMS[0];
 
-function SearchResults({ route, navigate, names }) {
+/** Rank entries whose first element is a name: exact, prefix, then anywhere. */
+function rank(entries, query, limit) {
+  const exact = [];
+  const prefix = [];
+  const rest = [];
+  for (const entry of entries ?? []) {
+    const at = entry[0].toLowerCase().indexOf(query);
+    if (at < 0) continue;
+    if (entry[0].toLowerCase() === query) exact.push(entry);
+    else if (at === 0) prefix.push(entry);
+    else rest.push(entry);
+    if (exact.length + prefix.length + rest.length > limit * 4) break;
+  }
+  return [...exact, ...prefix, ...rest].slice(0, limit);
+}
+
+/**
+ * Packages whose name matches, and the commands they install.
+ *
+ * A package and the command it installs are routinely named differently, and
+ * the name on the tin is the package: nothing ships a command called
+ * `ripgrep`, so searching for one found nothing at all until this existed.
+ */
+function PackageHits({ route, navigate, attrs, query }) {
+  const hits = useMemo(() => rank(attrs, query, MAX_PACKAGE_RESULTS), [attrs, query]);
+
+  if (!Array.isArray(attrs) || hits.length === 0) return null;
+
+  return html`
+    <div id="status" class="muted">
+      ${`${hits.length.toLocaleString()}${hits.length === MAX_PACKAGE_RESULTS ? "+" : ""} package${hits.length === 1 ? "" : "s"} named like this`}
+    </div>
+    <div id="results">
+      ${hits.map(
+        ([attr, total, sample]) => html`
+          <div class="pkg" key=${attr}>
+            ${attr}
+            <span class="muted">${" ships "}</span>
+            ${sample.map(
+              (c, i) => html`
+                ${i ? ", " : ""}
+                <${Link} to=${{ ...route, cmd: c, q: "" }} navigate=${navigate} key=${c}>
+                  ${c}
+                <//>
+              `,
+            )}
+            ${total > sample.length &&
+            html`<span class="muted">
+              ${` and ${compact(total - sample.length)} more`}
+            </span>`}
+          </div>
+        `,
+      )}
+    </div>
+  `;
+}
+
+function SearchResults({ route, navigate, names, attrs }) {
+  // Somebody typing "gcc" wants gcc before aarch64-unknown-linux-gnu-gcc,
+  // which is what rank() settles for both the commands and the packages.
+  const query = route.q.trim().toLowerCase();
   const hits = useMemo(() => {
-    if (!names || names === SHARD_ERROR) return [];
-    const q = route.q.trim().toLowerCase();
-    if (q.length < MIN_QUERY) return [];
+    if (!names || names === SHARD_ERROR || query.length < MIN_QUERY) return [];
+    return rank(names, query, MAX_RESULTS);
+  }, [names, query]);
 
-    // Exact first, then prefix, then anywhere. Somebody typing "gcc" wants
-    // gcc before aarch64-unknown-linux-gnu-gcc.
-    const exact = [];
-    const prefix = [];
-    const rest = [];
-    for (const entry of names) {
-      const name = entry[0];
-      const at = name.toLowerCase().indexOf(q);
-      if (at < 0) continue;
-      if (name.toLowerCase() === q) exact.push(entry);
-      else if (at === 0) prefix.push(entry);
-      else rest.push(entry);
-      if (exact.length + prefix.length + rest.length > MAX_RESULTS * 4) break;
-    }
-    return [...exact, ...prefix, ...rest].slice(0, MAX_RESULTS);
-  }, [names, route.q]);
-
-  if (route.q.trim().length < MIN_QUERY) return null;
+  if (query.length < MIN_QUERY) return null;
 
   return html`
     <div id="status" class="muted">
         ${hits.length === 0
-          ? "No executable by that name."
-          : `${hits.length.toLocaleString()}${hits.length === MAX_RESULTS ? "+" : ""} matching`}
+          ? "No command by that name."
+          : `${hits.length.toLocaleString()}${hits.length === MAX_RESULTS ? "+" : ""} command${hits.length === 1 ? "" : "s"} matching`}
       </div>
       <div id="results">
         ${hits.map(
@@ -77,6 +127,13 @@ function SearchResults({ route, navigate, names }) {
         `,
       )}
     </div>
+
+    <${PackageHits}
+      route=${route}
+      navigate=${navigate}
+      attrs=${attrs}
+      query=${query}
+    />
   `;
 }
 
@@ -85,9 +142,12 @@ function Dir({ node, path, depth }) {
   const [open, setOpen] = useState(depth === 0 ? ["bin"] : []);
   const [shown, setShown] = useState(ENTRIES_SHOWN);
 
-  const entries = Object.entries(node.entries ?? {}).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
+  // Directories first, then names. A store path's top level is bin, lib,
+  // share, and burying those under a hundred files is the wrong order.
+  const entries = Object.entries(node.entries ?? {}).sort(([an, a], [bn, b]) => {
+    const dirs = (b.type === "directory") - (a.type === "directory");
+    return dirs || an.localeCompare(bn);
+  });
   const visible = entries.slice(0, shown);
 
   return html`
@@ -97,28 +157,41 @@ function Dir({ node, path, depth }) {
         const isOpen = open.includes(name);
         const toggle = () =>
           setOpen(isOpen ? open.filter((n) => n !== name) : [...open, name]);
+        const count = isDir ? Object.keys(child.entries ?? {}).length : 0;
 
         return html`
-          <li key=${name}>
-            ${isDir
-              ? html`<button class="twist" onClick=${toggle}>
-                  ${isOpen ? "▾" : "▸"} ${name}/
-                </button>`
-              : html`<span class=${child.executable ? "exe" : ""}>${name}</span>`}
-            ${child.type === "symlink" &&
-            html`<span class="muted">${` → ${child.target}`}</span>`}
-            ${child.type === "regular" &&
-            html`<span class="muted">${` ${fmtBytes(child.size)}`}</span>`}
-            ${isDir && isOpen &&
+          <li key=${name} class=${isDir ? "dir" : ""}>
+            <div class="entry">
+              ${isDir
+                ? html`<button class="twist" onClick=${toggle}>
+                    <span class="mark">${isOpen ? "▾" : "▸"}</span>${`${name}/`}
+                  </button>`
+                : html`<span class=${`name ${child.executable ? "exe" : ""}`}>
+                    ${name}
+                  </span>`}
+              ${child.type === "symlink" &&
+              html`<span class="link">${`→ ${child.target}`}</span>`}
+              <span class="meta">
+                ${isDir
+                  ? `${compact(count)} entr${count === 1 ? "y" : "ies"}`
+                  : child.type === "regular"
+                    ? fmtBytes(child.size)
+                    : ""}
+              </span>
+            </div>
+            ${isDir &&
+            isOpen &&
             html`<${Dir} node=${child} path=${`${path}/${name}`} depth=${depth + 1} />`}
           </li>
         `;
       })}
       ${entries.length > shown &&
       html`<li>
-        <button class="twist" onClick=${() => setShown(shown + ENTRIES_SHOWN * 5)}>
-          ${`… ${compact(entries.length - shown)} more`}
-        </button>
+        <div class="entry">
+          <button class="twist" onClick=${() => setShown(shown + ENTRIES_SHOWN * 5)}>
+            ${`show ${compact(entries.length - shown)} more`}
+          </button>
+        </div>
       </li>`}
     </ul>
   `;
@@ -137,14 +210,7 @@ function Listing({ digest }) {
       anything built before about 2017. The path still fetches and still runs.
     </p>`;
 
-  return html`
-    <p class="muted">
-      Fetched from cache.nixos.org as you opened this, rather than served from
-      here: the full tree of every path would be gigabytes. The counts above
-      come from this index.
-    </p>
-    <${Dir} node=${root} path="" depth=${0} />
-  `;
+  return html`<${Dir} node=${root} path="" depth=${0} />`;
 }
 
 /** One version row, expanded: what to type, what is in it, where to go. */
@@ -459,6 +525,7 @@ function History({ rows, name }) {
 export function Commands({ route, navigate }) {
   const system = systemOf(route);
   const names = useNames(system);
+  const attrs = useAttrs(system);
 
   // The box stays put while a command is open, holding that command's name,
   // so looking up the next one is typing rather than navigating back first.
@@ -483,6 +550,11 @@ export function Commands({ route, navigate }) {
           name=${route.cmd}
           system=${system}
         />`
-      : html`<${SearchResults} route=${route} navigate=${navigate} names=${names} />`}
+      : html`<${SearchResults}
+          route=${route}
+          navigate=${navigate}
+          names=${names}
+          attrs=${attrs}
+        />`}
   `;
 }

@@ -275,6 +275,35 @@ def write_bins(db, out, system):
     return len(shards)
 
 
+# How many of a package's commands the search index carries. Enough to say
+# what a package gives you without this becoming the whole bins table again.
+COMMANDS_IN_INDEX = 8
+
+
+def write_attrs(db, out, system):
+    """The package search index: attribute name to the commands it ships.
+
+    The command index answers "what provides rg". This answers the question
+    people actually type, which is "ripgrep", because a package's name and the
+    name of the command it installs are routinely different and only one of
+    them is on the tin.
+    """
+    commands = defaultdict(set)
+    for attr, name in db.execute("SELECT DISTINCT attr, name FROM bins"):
+        commands[attr].add(name)
+
+    index = []
+    for attr in sorted(commands):
+        names = sorted(commands[attr])
+        index.append([attr, len(names), names[:COMMANDS_IN_INDEX]])
+
+    path = os.path.join(out, f"attrs-{system}.json")
+    with open(path, "w") as f:
+        json.dump(index, f, separators=(",", ":"))
+
+    return len(index)
+
+
 def write_packages(db, out, system):
     """Which commands each build ships, split by the package's first two chars.
 
@@ -331,10 +360,12 @@ def main():
         stats["systems"].append(entry)
 
         names = write_names(db, args.out, system)
+        attrs = write_attrs(db, args.out, system)
         shards = write_bins(db, args.out, system)
         packages = write_packages(db, args.out, system)
         print(
-            f"{system}: {names} names, {shards} bin shards, {packages} package shards"
+            f"{system}: {names} names, {attrs} packages, "
+            f"{shards} bin shards, {packages} package shards"
         )
 
     with open(os.path.join(args.out, "stats.json"), "w") as f:

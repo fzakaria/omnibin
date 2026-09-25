@@ -1007,22 +1007,81 @@ nav .syspick {
 /* ---------- the file listing of a store path (js/views/commands.js) ----------
 
    Fetched from cache.nixos.org when a version row is opened, so this is the
-   only part of the page whose data does not come from this origin. */
+   only part of the page whose data does not come from this origin. Laid out
+   as a name column and a size column rather than a sentence per line, so
+   sizes compare down the tree the way they do in a table. */
 .tree {
   list-style: none;
-  margin: 0.2rem 0 0.2rem 0.8rem;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 0 0.9rem;
   font:
     12px/1.6 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
 }
-.tree li {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* A hairline down each level, so a deep path still reads as nested once the
+   names are long enough to wrap. */
+.tree .tree {
+  border-left: 1px solid var(--line);
 }
+.tree li {
+  min-width: 0;
+}
+.tree .entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.05rem 0;
+}
+.tree .entry:hover {
+  background: var(--code-bg);
+}
+.tree .name,
+.tree .twist {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The size or the entry count, against the right edge, tabular so the digits
+   line up down the column. */
+.tree .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tree .link {
+  color: var(--muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* A directory toggle. A button so it is reachable from a keyboard, styled
+   down to the plain text it looks like. */
+.twist {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+.twist:hover {
+  text-decoration: underline;
+}
+/* The marker keeps its own width so sibling names start on one column
+   whether or not the row is open. */
+.twist .mark {
+  display: inline-block;
+  width: 1em;
+}
+/* The executable bit is the one thing in a listing worth marking: it is what
+   says a file is a command rather than a resource. */
+.tree .exe {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 /* A directory toggle. A button so it is reachable from a keyboard, styled
    down to the plain text it looks like. */
 .twist {

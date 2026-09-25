@@ -160,6 +160,9 @@ function useFile(path) {
 
 export const useStats = () => useFile("stats.json");
 
+/** The package search index: [attribute, command count, sample commands]. */
+export const useAttrs = (system) => useFile(`attrs-${system}.json`);
+
 /** The search index for a system: [name, versionCount] pairs, name-sorted. */
 export const useNames = (system) => useFile(`names-${system}.json`);
 

@@ -29,6 +29,10 @@ export const VIEWS = ["commands", "stats"];
 // they are just laying out.
 export const MAX_RESULTS = 200;
 
+// Package hits are the secondary answer, so they get a shorter list: somebody
+// who typed a package name wants the handful that match, not two hundred.
+export const MAX_PACKAGE_RESULTS = 25;
+
 // Below this many characters a search matches too much to be worth running.
 export const MIN_QUERY = 2;
 
