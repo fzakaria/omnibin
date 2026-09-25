@@ -1,0 +1,14 @@
+# The crawl artifacts and everything derived from them. Nothing in the flake
+# tree evaluates them: they live on dated release cuts, addressed by
+# data-pins.json, and tools/fetch-data.sh puts them here.
+data/
+
+# Run logs.
+crawl.log
+
+# Build outputs and caches.
+result
+result-*
+target/
+__pycache__/
+.mypy_cache/
