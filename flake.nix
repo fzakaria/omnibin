@@ -50,6 +50,11 @@
 
           # The raw crawl, republished: every file listing, as JSON Lines.
           listings = data.listings;
+
+          # The browsable index at omnibin.dev: the search, the leaderboards
+          # and the charts, all static files built from the same databases the
+          # filesystem reads.
+          site = import ./nix/site.nix { inherit pkgs self; };
         }
       );
 
@@ -61,6 +66,18 @@
         vm = {
           type = "app";
           program = "${self.packages.${system}.vm}/bin/run-nixos-vm";
+        };
+
+        # `nix run .#serve [port]` serves the built site locally, which is the
+        # same tree the pages workflow deploys.
+        serve = {
+          type = "app";
+          program = "${
+            import ./nix/serve.nix {
+              pkgs = nixpkgs.legacyPackages.${system};
+              site = self.packages.${system}.site;
+            }
+          }/bin/serve-site";
         };
       });
 

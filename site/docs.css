@@ -1,0 +1,290 @@
+/* Documentation pages. Loaded only under /docs/ — the index browser never
+ * pays for it. Every colour is a token from style.css, so the prose picks up
+ * light/dark and the site's one accent without redefining either. */
+
+/* The docs are prose, not tables of 60-character revisions, so they get a
+ * narrower measure than the index browser's 60rem — but the sidebar sits
+ * outside it, so the page as a whole is wider. */
+body {
+  max-width: 74rem;
+}
+
+/* ---------- layout ---------- */
+
+.doc-layout {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+/* The sidebar rides along on desktop and folds to a plain block above the
+   content on narrow screens, where a sticky column would eat the viewport. */
+.doc-nav {
+  position: sticky;
+  top: 1rem;
+  margin: 1rem 0;
+  border: 0;
+  font-size: 14px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+.doc-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* The nested list is the current page's own headings. */
+.doc-nav ul ul {
+  margin: 0.2rem 0 0.6rem 0.8rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line);
+}
+.doc-nav li {
+  margin: 0.25rem 0;
+}
+.doc-nav a {
+  display: block;
+  padding: 0.15rem 0;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.doc-nav a:hover {
+  color: var(--fg);
+}
+.doc-nav > ul > li > a.active {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.doc-body {
+  min-width: 0;
+  padding-bottom: 1rem;
+}
+
+/* ---------- prose ---------- */
+
+/* style.css sizes h1/h2 for the index browser's header and section labels;
+   a documentation page needs a visible hierarchy across three levels. */
+.doc-body h1 {
+  font-size: 1.7rem;
+  margin: 1.2rem 0 0.8rem;
+  line-height: 1.25;
+}
+.doc-body h2 {
+  font-size: 1.25rem;
+  margin: 2rem 0 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  line-height: 1.3;
+}
+.doc-body h3 {
+  font-size: 1.05rem;
+  margin: 1.4rem 0 0.4rem;
+}
+.doc-body p,
+.doc-body li {
+  line-height: 1.65;
+}
+.doc-body p {
+  margin: 0.7rem 0;
+}
+.doc-body ul,
+.doc-body ol {
+  padding-left: 1.4rem;
+}
+.doc-body li {
+  margin: 0.3rem 0;
+}
+
+/* A heading is its own link. The marker only appears on hover, so it never
+   competes with the heading text. */
+.doc-body h2 a.anchor,
+.doc-body h3 a.anchor {
+  color: inherit;
+  text-decoration: none;
+}
+.doc-body h2 a.anchor::after,
+.doc-body h3 a.anchor::after {
+  content: " #";
+  color: var(--muted);
+  opacity: 0;
+  font-weight: 400;
+}
+.doc-body h2:hover a.anchor::after,
+.doc-body h3:hover a.anchor::after {
+  opacity: 1;
+}
+
+/* An anchored jump must not land the heading under the sticky sidebar's top
+   edge, and the two share the same 1rem offset. */
+.doc-body :target {
+  scroll-margin-top: 1.5rem;
+}
+
+/* ---------- code ---------- */
+
+/* style.css styles inline `code` only. A fenced block is the unit these docs
+   are mostly made of: it scrolls on its own rather than widening the page. */
+.doc-body pre {
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.7rem 0.8rem;
+  margin: 0.7rem 0;
+  overflow-x: auto;
+}
+.doc-body pre code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+/* ---------- syntax highlighting ----------
+ *
+ * Pygments runs at build time and emits its short class names; these rules are
+ * the whole theme. Written as tokens rather than an imported Pygments stylesheet
+ * so the colours are chosen against this site's two code surfaces (#f4f4f4 and
+ * #22252c) instead of against a foreign theme's background.
+ *
+ * Four hues and the muted grey, deliberately: more than that on a page which is
+ * over half code stops being information and becomes decoration.
+ */
+:root {
+  --syn-comment: var(--muted);
+  --syn-string: #0a7d55;
+  --syn-keyword: #8250df;
+  --syn-literal: #0550ae;
+  --syn-name: var(--fg);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --syn-string: #6bbf8a;
+    --syn-keyword: #c4a7f5;
+    --syn-literal: #8fa3ff;
+  }
+}
+
+/* In a console block, the prompt and the program's output: present, but not
+   what the eye should land on. Neither is copyable text. */
+.highlight .gp,
+.highlight .go {
+  color: var(--syn-comment);
+}
+/* Comments share the colour but not the slant. In a shell session an
+   editorial comment and a line of program output are both grey and both
+   start at the left margin; italics are what separates the prose written
+   for the reader from the text the command printed. */
+.highlight .c,
+.highlight .c1,
+.highlight .cm,
+.highlight .cp,
+.highlight .cs {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .se,
+.highlight .sb,
+.highlight .si,
+.highlight .sx {
+  color: var(--syn-string);
+}
+.highlight .k,
+.highlight .kn,
+.highlight .kd,
+.highlight .kr,
+.highlight .kt,
+.highlight .ow {
+  color: var(--syn-keyword);
+}
+.highlight .m,
+.highlight .mi,
+.highlight .mf,
+.highlight .kc,
+.highlight .nb,
+.highlight .nf,
+.highlight .nt {
+  color: var(--syn-literal);
+}
+/* Plain names, and — the one that matters for these docs — the attribute
+   names on the left of `=` in a Nix block, which the Nix lexer emits as
+   String.Symbol. They are the structure of the expression, not values in it,
+   so they stay foreground rather than taking the string colour. */
+.highlight .nv,
+.highlight .na,
+.highlight .nc,
+.highlight .nn,
+.highlight .ss {
+  color: var(--syn-name);
+}
+/* An error token means the lexer lost its place; it should look like ordinary
+   text rather than paint the block red. */
+.highlight .err {
+  color: inherit;
+  background: none;
+}
+
+/* ---------- tables ---------- */
+
+.doc-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8rem 0;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+}
+.doc-body th,
+.doc-body td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-body th {
+  font-weight: 600;
+}
+
+/* ---------- blockquotes and rules ---------- */
+
+.doc-body blockquote {
+  margin: 0.8rem 0;
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.doc-body hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.6rem 0;
+}
+
+.doc-edit {
+  margin-top: 2.5rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+/* ---------- narrow screens ---------- */
+
+@media (max-width: 55rem) {
+  .doc-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .doc-nav {
+    position: static;
+    max-height: none;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid var(--line);
+  }
+  /* On a phone the page list is enough; the current page's headings would
+     push the actual content off the first screen. */
+  .doc-nav ul ul {
+    display: none;
+  }
+}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>omnibin · every binary nixpkgs ever shipped</title>
+    <meta
+      name="description"
+      content="Search every executable nixpkgs ever shipped, at every version, with the store path and the download each one costs. 51,000 commands over 880,000 versions."
+    />
+    <link rel="canonical" href="https://omnibin.dev/" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧰</text></svg>"
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="omnibin" />
+    <meta property="og:title" content="omnibin — every binary nixpkgs ever shipped" />
+    <meta
+      property="og:description"
+      content="Every executable nixpkgs ever shipped, on your PATH, fetched only when something reads it."
+    />
+    <meta property="og:url" content="https://omnibin.dev/" />
+
+    <link rel="stylesheet" href="style.css" />
+
+    <!-- Preact + htm in one pinned, integrity-checked file (~13 KB). The
+         import map keeps the js/ modules free of CDN URLs; browsers that
+         support the importmap "integrity" key verify the bundle, older ones
+         ignore it. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "htm/preact": "https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js"
+        },
+        "integrity": {
+          "https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js": "sha384-StNNHifqKmppGEDNqrv+YtX8PD3mhAhLtNbioQ4QxbPNqaTnktcDjsIPGjcDoiKa"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site">
+      <h1><a href=".">omnibin</a></h1>
+      <nav class="site">
+        <a class="active" href=".">Index</a>
+        <a href="docs/">Documentation</a>
+        <a
+          href="https://nixmultiverse.com/"
+          title="nixpkgs-multiverse: the index every store path here comes from"
+        >
+          multiverse
+        </a>
+        <a href="https://seenix.dev/" title="seenix: every byte of a closure, one pixel each">
+          seenix
+        </a>
+        <a href="https://github.com/fzakaria/omnibin">GitHub</a>
+      </nav>
+    </header>
+
+    <div id="app"><p class="muted">Loading index…</p></div>
+
+    <footer class="muted">
+      Made with ❤️ by
+      <a href="https://fzakaria.com">Farid Zakaria</a>
+      ·
+      <a href="https://github.com/fzakaria/omnibin/blob/main/LICENSE">MIT</a>
+      <div id="store" hidden><code id="store-path"></code></div>
+    </footer>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

@@ -24,6 +24,13 @@ fi
 TAG="$1"
 shift
 
+# Which multiverse cut these artifacts describe. Recorded beside the pins
+# because the site states it and nothing else in the flake tree knows it.
+MULTIVERSE_TAG=""
+if [ -f "$ROOT/data/multiverse/TAG" ]; then
+  MULTIVERSE_TAG=$(cat "$ROOT/data/multiverse/TAG")
+fi
+
 # nix hash path NAR-serializes the file, which is the narHash a type = "file"
 # fetch computes for the same bytes. The list goes through a temp file because
 # the heredoc below already owns stdin.
@@ -37,10 +44,10 @@ for f in "$@"; do
   printf '%s\t%s\n' "$(basename "$f")" "$(nix hash path --sri --type sha256 "$f")"
 done > "$HASHES"
 
-python3 - "$PINS" "$TAG" "$HASHES" <<'PY'
+python3 - "$PINS" "$TAG" "$HASHES" "$MULTIVERSE_TAG" <<'PY'
 import json, os, sys
 
-pins_file, tag, hashes = sys.argv[1:4]
+pins_file, tag, hashes, multiverse_tag = sys.argv[1:5]
 pins = {
     "version": 1,
     "baseUrl": "https://github.com/fzakaria/omnibin/releases/download",
@@ -48,6 +55,9 @@ pins = {
 }
 if os.path.exists(pins_file):
     pins = json.load(open(pins_file))
+
+if multiverse_tag:
+    pins["multiverseTag"] = multiverse_tag
 
 updated = 0
 for line in open(hashes):

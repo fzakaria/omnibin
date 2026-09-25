@@ -1,0 +1,8 @@
+# Everything here is a public read-only view of nixpkgs history, so nothing is
+# disallowed. Search result pages (?q=) carry a noindex tag instead of a
+# Disallow: a crawler has to fetch a page to see that it should not index it,
+# and a Disallow here would hide the tag while leaving the URLs indexable.
+User-agent: *
+Allow: /
+
+Sitemap: https://omnibin.dev/sitemap.xml

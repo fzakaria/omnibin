@@ -1,0 +1,79 @@
+# Publishes the index browser and the documentation to GitHub Pages.
+#
+# The deployed tree is `nix build .#site`, which is the same derivation
+# `nix run .#serve` tests locally. It bundles site/ with the data files built
+# from the pinned databases, renders docs/*.md into /docs/, stamps the commit
+# into the footer and content-hashes the modules. See nix/site.nix.
+#
+# update.yml commits when a new data release is cut, so the site tracks the
+# index at that cadence through the workflow_run trigger below. Its commits
+# are pushed with the default GITHUB_TOKEN, and GitHub refuses to start a
+# workflow from an event that token created, so the push trigger never sees
+# them however well they match its paths.
+#
+# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/**
+      - data-pins.json
+      - nix/site.nix
+      - nix/docs.nix
+      - tools/build-site-data.py
+      - tools/render-docs.py
+      - .github/workflows/pages.yml
+  workflow_run:
+    workflows: [update]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Deploys must land in order; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # A failed data run leaves the tree it would have published unwritten, so
+    # there is nothing to deploy.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      # The site carries a copy of every file listing's worth of derived data,
+      # so the runner needs the room the preinstalled toolchains are using.
+      - name: free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: build
+        run: nix build .#site --print-build-logs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: result/
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,974 @@
+/* Minimal on purpose: system fonts, one accent, dark mode via media query. */
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6a6a6a;
+  --line: #e0e0e0;
+  --accent: #4f6bed;
+  --code-bg: #f4f4f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --fg: #e6e6e6;
+    --muted: #9a9a9a;
+    --line: #33363d;
+    --accent: #8fa3ff;
+    --code-bg: #22252c;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0 auto;
+  padding: 1rem;
+  max-width: 60rem;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    15px/1.5 system-ui,
+    sans-serif;
+}
+h1 {
+  font-size: 1.3rem;
+  margin: 0.2rem 0;
+}
+h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* The site header: the title on the left, the top-level destinations on the
+   right. Deliberately borderless — on the index the SPA's own view tabs draw
+   a rule immediately below it, and two rules stacked read as a boxed-in
+   header. Wraps to two lines on a narrow phone rather than shrinking. */
+header.site {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.3rem 1rem;
+  margin: 0.2rem 0 0.6rem;
+}
+/* These links are site-level navigation, not the view tabs `nav a` styles,
+   so the tab strip's padding and underline are undone here. */
+nav.site {
+  margin: 0;
+  border: 0;
+  display: flex;
+  gap: 1rem;
+  font-size: 14px;
+}
+nav.site a {
+  display: inline;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  text-decoration: none;
+}
+nav.site a:hover {
+  text-decoration: underline;
+}
+nav.site a.active {
+  color: var(--fg);
+  font-weight: 600;
+}
+h2 {
+  font-size: 1.1rem;
+  margin: 1rem 0 0.3rem;
+}
+.muted {
+  color: var(--muted);
+}
+a {
+  color: var(--accent);
+}
+nav {
+  margin: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+/* The tabs are anchors rather than buttons so that each one is a crawlable
+   link to the view it opens, and so middle-click and copy-link work on them.
+   These rules undo the anchor's own colour and underline and restore the tab
+   strip the buttons drew. */
+nav a {
+  display: inline-block;
+  border-bottom: 2px solid transparent;
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+nav a.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+input[type="search"] {
+  width: 100%;
+  padding: 0.5rem;
+  font: inherit;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+code {
+  font:
+    13px/1.5 ui-monospace,
+    monospace;
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: 0.1rem 0.3rem;
+}
+
+/* ---------- shared UI (js/ui.js): commands and expandable rows ---------- */
+
+/* A copyable command: one block, the command never wraps, the icon rides
+     on the right edge. */
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  margin: 0.25rem 0 0.6rem;
+}
+.cmd code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+  overflow-x: auto;
+  flex: 1;
+}
+/* Generous padding (pulled back with a negative margin so the block keeps
+     its size) makes the icon an easy target on both desktop and touch. */
+.cmd button {
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  margin: -0.35rem;
+  cursor: pointer;
+  color: var(--muted);
+  flex: none;
+  line-height: 0;
+}
+.cmd button:hover {
+  color: var(--fg);
+}
+.capt {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 0.5rem;
+}
+
+/* Expandable rows.
+ *
+ * Deliberately NOT <details>/<summary>: every row carries commit and
+ * channel-build links, everything visible while collapsed must live inside
+ * <summary>, and an interactive element nested in a <summary> is not reliably
+ * keyboard-reachable — Chromium reported 348 of them. The disclosure is a real
+ * <button> and the links are its siblings; see the Row component in js/ui.js.
+ *
+ * The button takes the first grid column rather than being absolutely
+ * positioned, so the marker, the header cells and the row cells all share one
+ * track list and stay aligned.
+ */
+.head,
+.row {
+  display: grid;
+  gap: 0.8rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+}
+/* A channel build name — nixos-26.11pre1051473.2fcb964de67f — is one token with
+   no break the browser will take, so its min-content width is the whole string.
+   In the trailing 1fr track that becomes a floor the grid cannot go below, and
+   between roughly 640px and 780px of viewport it pushed the document wider than
+   the screen. Let the cells break mid-token instead: a wrapped build name costs
+   one line, a document wider than the viewport costs every block on the page,
+   which all stop at the viewport edge while the page scrolls past it. */
+.row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.head {
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+.item {
+  border-bottom: 1px solid var(--line);
+}
+.row {
+  cursor: pointer;
+  scroll-margin-top: 1.5rem;
+}
+.row:hover {
+  background: var(--code-bg);
+}
+.disclose {
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  text-align: left;
+}
+/* The row is clickable as a convenience, so the button is the only thing that
+   takes focus — it needs a visible ring or keyboard users cannot see where
+   they are. */
+.disclose:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* Links inside a row keep the row's color until hovered themselves, so the
+   commit and channel build read as part of the row but light up on target. */
+.row a {
+  color: inherit;
+  text-decoration: none;
+}
+.row a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.body {
+  padding: 0.2rem 0 0.8rem 1.4rem;
+}
+.links {
+  font-size: 13px;
+  margin: 0.3rem 0;
+}
+.links a {
+  margin-right: 1rem;
+}
+
+/* ---------- the view tables (js/views/*.js): column track lists ---------- */
+
+/* First track is the disclosure button. */
+.cols-ver {
+  grid-template-columns: 1.4rem 9rem 15rem 5.5rem 1fr;
+}
+/* The size cell: numbers compare down the column. */
+.rowsize {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cols-rev {
+  grid-template-columns: 1.4rem 7rem 9rem 7rem 1fr;
+}
+.cols-rel {
+  grid-template-columns: 1.4rem 5rem 7rem 9rem 1fr;
+}
+
+/* ---------- packages search and identify (js/views/packages.js) ---------- */
+
+/* A search hit is an anchor, so that a crawler following the search page has
+   a way into the 31,798 package pages and a reader can open one in a new tab.
+   It keeps the plain-text look it had as a div: accent colour on hover only,
+   never underlined. */
+.pkg {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+.pkg:hover {
+  color: var(--accent);
+}
+/* ---------- revision pins (js/views/revisions.js) ---------- */
+
+/* Three columns where there is room for three. The 10rem minimum is set by the
+   narrowest useful column rather than by the widest attribute name: at 14rem a
+   phone could only ever fit one column, and a single column of short names
+   wastes half the screen. Names longer than the column wrap inside it. */
+.pins {
+  columns: 3 10rem;
+  font-size: 13px;
+  margin: 0.4rem 0;
+}
+.pins div {
+  break-inside: avoid;
+}
+button.more {
+  display: block;
+  font:
+    13px system-ui,
+    sans-serif;
+  cursor: pointer;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0.2rem 0;
+}
+#status {
+  margin: 0.5rem 0;
+}
+
+footer {
+  margin-top: 2rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  text-align: center;
+}
+/* The second footer line: a store path is a single 68-character token —
+     broken across lines it is unreadable and awkward to select. Hold it on
+     one line and let the font shrink instead: 12px needs ~490px, which the
+     measure has on a desktop but a phone does not, so the vw term takes
+     over below ~570px viewport (one line down to a 320px phone). */
+#store {
+  margin-top: 0.3rem;
+}
+#store code {
+  font-size: min(12px, 2.1vw);
+  white-space: nowrap;
+  background: none;
+  padding: 0;
+}
+
+/* ---------- charts (js/charts.js plumbing, js/views/stats.js and the
+ * package charts in js/views/package.js) ----------
+ *
+ * Colors are roles, not hex, so the dark block below swaps them in one place.
+ * The two series hues are the validated diverging pair (blue ↔ red): they clear
+ * the lightness band, chroma floor, CVD separation and 3:1 contrast against
+ * BOTH of this site's surfaces (#ffffff / #16181d). Do not substitute by eye.
+ *
+ * Grid and axis reuse --line, which is already the site's one-step-off-surface
+ * hairline, so charts sit at the same visual weight as the tables.
+ */
+:root {
+  --chart-series: #2a78d6;
+  --chart-added: #2a78d6;
+  --chart-removed: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chart-series: #3987e5;
+    --chart-added: #3987e5;
+    --chart-removed: #e66767;
+  }
+}
+
+.chart {
+  margin: 1.4rem 0 1.8rem;
+}
+.chart h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.1rem;
+}
+.chart .sub {
+  font-size: 12px;
+  color: var(--muted);
+  /* Enough clearance that a two-line subtitle never crowds the plot: the svg
+     is overflow:visible so the end-dot and its ring sit slightly proud of the
+     top gridline. */
+  margin: 0 0 0.9rem;
+}
+/* The container grows with its content rather than fixing a height, so the
+   x-axis band is never the thing that gets clipped into a nested scrollbar. */
+.chart figure {
+  margin: 0;
+  position: relative;
+}
+.chart svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.chart .grid line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.chart text {
+  fill: var(--muted);
+  font:
+    11px system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.chart .series {
+  fill: none;
+  stroke: var(--chart-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+/* Bars carry the series colour as a fill rather than a stroke. Without this
+   they inherit the svg's default black and read as a different chart. */
+.chart .series-fill {
+  fill: var(--chart-series);
+}
+.chart .area {
+  fill: var(--chart-series);
+  opacity: 0.1;
+  stroke: none;
+}
+/* The end-dot carries a 2px ring in the surface color so it stays legible
+   where it crosses the line or a gridline. */
+.chart .enddot {
+  fill: var(--chart-series);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+.chart .crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.chart .bar-added {
+  fill: var(--chart-added);
+}
+.chart .bar-removed {
+  fill: var(--chart-removed);
+}
+.chart .zero {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+/* Legend — always present for two or more series, so identity never rests on
+   color alone. The swatch carries the hue; the text stays in ink. */
+.legend {
+  display: flex;
+  gap: 1rem;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* A legend term carrying a definition in its title. The dotted underline is
+   the only affordance a title tooltip gets, so it has to be there. */
+.legend .whatis {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.tip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+  z-index: 2;
+}
+.tip b {
+  font-weight: 600;
+}
+.tip .k {
+  color: var(--muted);
+}
+
+/* Every chart has a table twin, so no value is reachable only by hovering. */
+.chart .tableview {
+  margin-top: 0.5rem;
+  font-size: 12px;
+}
+.chart .tableview table {
+  border-collapse: collapse;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.chart .tableview th,
+.chart .tableview td {
+  text-align: right;
+  padding: 0.15rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.chart .tableview th:first-child,
+.chart .tableview td:first-child {
+  text-align: left;
+}
+.chart summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+
+/* KPI row: the headline numbers, which are stat tiles rather than a one-bar
+   chart. Proportional figures — tabular-nums makes a big number look loose. */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0 0.5rem;
+}
+.kpi {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+}
+.kpi .v {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.kpi .l {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- per-package timeline (Timeline in js/views/package.js) ----------
+ *
+ * One row per version, bars where that version was actually the one nixpkgs
+ * shipped. A version with a gap draws as two bars, which is the point.
+ */
+.tl-row:hover .tl-bg {
+  fill: var(--code-bg);
+}
+.tl-bar {
+  fill: var(--chart-series);
+}
+.tl-label {
+  fill: var(--fg);
+  font:
+    11px ui-monospace,
+    monospace;
+}
+/* A selected version: the bar changes hue AND its row is shaded. A run can be
+   a single revision — three pixels — and colour alone on a mark that small is
+   not a signal anyone can find. */
+.tl-sel .tl-bar {
+  fill: var(--chart-removed);
+}
+.tl-sel .tl-bg {
+  fill: var(--code-bg);
+}
+
+/* ---------- store metadata (js/views/package-store.js): badges, dep chips,
+   graph ---------- */
+
+/* Liveness. The symbol (●/○) carries the meaning; color is the second
+   channel. Same green/red discipline as the delta pair below. */
+.cachebadge {
+  font-size: 13px;
+  margin: -0.3rem 0 0.6rem;
+}
+.badge-ok {
+  color: var(--delta-add);
+}
+.badge-dead {
+  color: var(--delta-del);
+}
+/* Nothing has probed this path yet — neither of the other two, so neither
+   of their colors. */
+.badge-unknown {
+  color: var(--muted);
+}
+
+/* A dependency chip: one path, one small box. Link chips take the accent on
+   hover like everything else. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0 0.5rem;
+  font-size: 12px;
+}
+.chip {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+  background: var(--code-bg);
+  color: var(--fg);
+  text-decoration: none;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Dep changes between versions: reuses the delta colors, wraps as chips do. */
+.depdiff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+  margin: 0.2rem 0 0.5rem;
+  font-size: 12.5px;
+}
+
+/* The identified store path card. */
+.identify {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin: 0.5rem 0;
+}
+
+/* The radial dependency graph. The svg is a map viewport: zooming rewrites
+   its viewBox, so content must CLIP at the edge — overflow:visible let a
+   zoomed graph spill across the whole page. The border makes the viewport
+   readable as a thing with an inside. */
+.graphbox {
+  margin: 0.6rem 0;
+}
+.graphbox svg {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.g-edge {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.g-edge2 {
+  opacity: 0.6;
+}
+.g-node {
+  fill: var(--muted);
+}
+.g-node-link {
+  fill: var(--chart-series);
+  cursor: pointer;
+}
+.g-center {
+  fill: var(--chart-removed);
+}
+.g-label {
+  fill: var(--fg);
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.g-label2 {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.g-label-link {
+  cursor: pointer;
+}
+.g-label-link:hover {
+  fill: var(--accent);
+}
+.g-center-label {
+  font-weight: 600;
+}
+
+/* The closure series in the weight chart, on the diverging partner hue. */
+.chart .series-closure {
+  stroke: var(--chart-removed);
+}
+
+/* The universe canvas and its time slider (js/views/universe.js). */
+.universe {
+  margin: 0.8rem 0 1.4rem;
+  position: relative;
+}
+.universe canvas {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.unislider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  font-size: 13px;
+}
+.unislider input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* Delta text in the revisions table (js/views/revisions.js), reused by the
+   dep diff in js/views/package-store.js. The +/− sign carries the meaning and the
+   color is the secondary channel, which is what keeps this readable under
+   red-green CVD — the most common kind, and the reason a bare red/green pair
+   is never allowed to carry meaning alone.
+
+   Measured against both surfaces: added 7.54 light / 5.29 dark, removed 4.80
+   light / 5.50 dark. All clear the 4.5:1 floor for text. */
+:root {
+  --delta-add: #006300;
+  --delta-del: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --delta-add: #0ca30c;
+    --delta-del: #e66767;
+  }
+}
+.delta {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.delta .a {
+  color: var(--delta-add);
+}
+.delta .d {
+  color: var(--delta-del);
+}
+
+/* A version's runs, inside its expanded row (js/views/package.js). */
+.runs {
+  font-size: 13px;
+  margin: 0.2rem 0 0.4rem;
+}
+.runs div {
+  padding: 0.1rem 0;
+}
+
+/* Expand/collapse every row on the page (useBulk in js/ui.js), and the
+ * heading line that carries it.
+ *
+ * The button used to be float:right, which pins it beside the FIRST line of the
+ * heading — so once the heading wrapped, which it does on any phone, the button
+ * stayed up on line one and the wrapped text ran underneath it, landing the
+ * control on top of the rows below. As a flex item it sits at the end of the
+ * line and drops to a line of its own when the heading needs one. */
+.bulkline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.8rem;
+}
+/* The package view's row holds nothing but the controls, so they sit at the
+   right edge where "expand all" has always been — and the row carries the
+   spacing the heading used to, since it replaced one. */
+.pkgcontrols {
+  margin: 1rem 0 0.3rem;
+}
+
+.bulkline-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* The system picker, sharing a line with "expand all". A select because the
+   list grows by one with every system backfilled. */
+.syspick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Without the label, "aarch64-darwin" beside "expand all" reads as a fact
+   about the page rather than as something to change. */
+.syspick-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  /* "store paths for" breaking across two lines doubles the height of the
+     whole controls row. */
+  white-space: nowrap;
+}
+
+.syspick select {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+}
+
+.syspick select:hover {
+  border-color: var(--muted);
+}
+
+.bulk {
+  /* Holds the button against the right edge on both the shared line and the
+     line of its own it takes after wrapping. */
+  margin-left: auto;
+  font:
+    12px system-ui,
+    sans-serif;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+
+/* ---------- narrow screens ----------
+ *
+ * One breakpoint, placed where the widest table stops being a table. The
+ * version table's fixed tracks and gaps come to 30rem before its last column
+ * holds a single character, and a channel build name wants another 19rem — so
+ * a table that fits needs about 50rem of viewport, and 48rem is the round
+ * number just under it. (Between the two the name takes a second line, which
+ * costs a line and nothing else.) A phone was nowhere near either figure: every
+ * table pushed the document wider than the screen, which costs more than the
+ * tables, since a document wider than the viewport strands every full-width
+ * block at viewport width — the copyable commands sat in a box narrower than
+ * the page they were on.
+ *
+ * Below the breakpoint the tables stop being tables, and the horizontal padding
+ * that a mouse-sized layout can afford goes back to the content.
+ */
+@media (max-width: 48rem) {
+  body {
+    padding: 0.75rem;
+  }
+
+  /* The select takes what the label leaves, so the system name is never what
+     gets truncated and the tap target is the rest of the line. */
+  .bulkline-controls {
+    width: 100%;
+  }
+  .syspick {
+    flex: 1;
+  }
+  .syspick select {
+    flex: 1;
+    min-width: 0;
+    padding: 0.35rem 0.5rem;
+  }
+
+  /* The fixed tracks are the thing that overflows, so drop them: a row becomes
+     a line of cells that wraps. The header row names tracks that no longer
+     exist, so it goes with them. */
+  .head {
+    display: none;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.6rem;
+  }
+  /* Last cell in every table is the channel build — the longest string in the
+     row and the least load-bearing. On its own line it leaves the cells that
+     identify the row (version, date, commit) together on the first one, and it
+     is indented clear of the disclosure marker so it still reads as part of the
+     row above rather than as a row of its own. */
+  .row > :last-child {
+    flex-basis: 100%;
+    padding-left: 2rem;
+  }
+
+  .body {
+    padding-left: 0.6rem;
+  }
+
+  /* A command that scrolls sideways inside a page is a poor target for a thumb,
+     and no font size fits `nix run '…#versions.python3Packages.foo."3.8.2"'` on
+     a phone anyway — so on a narrow screen the command wraps instead of
+     scrolling. Nothing is lost by it: the copy button, not a text selection, is
+     how a command gets off this page. */
+  .cmd {
+    align-items: flex-start;
+    padding: 0.45rem 0.5rem;
+  }
+  .cmd code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-x: visible;
+  }
+
+  /* Stats and chart tables on narrow screens: drop rigid <table> grid
+     and collapse into flexible rows matching the rest of the site. */
+  .chart .tableview thead {
+    display: none;
+  }
+  .chart .tableview tbody {
+    display: block;
+  }
+  .chart .tableview tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--line);
+    gap: 0.1rem 0.6rem;
+  }
+  .chart .tableview th,
+  .chart .tableview td {
+    display: block;
+    padding: 0;
+    border: none;
+    text-align: left;
+  }
+  .chart .tableview td:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .chart .tableview td:last-child {
+    margin-left: auto;
+    text-align: right;
+    font-weight: 500;
+  }
+}
+
+/* One build of a command: the disclosure, the version, the package it came
+   from, when it last shipped, and what it costs to fetch. */
+.cols-cmd {
+  grid-template-columns: 1.4rem 9rem 1fr 6rem 5.5rem;
+}
+
+/* ---------- the file listing of a store path (js/views/commands.js) ----------
+
+   Fetched from cache.nixos.org when a version row is opened, so this is the
+   only part of the page whose data does not come from this origin. */
+.tree {
+  list-style: none;
+  margin: 0.2rem 0 0.2rem 0.8rem;
+  padding: 0;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.tree li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A directory toggle. A button so it is reachable from a keyboard, styled
+   down to the plain text it looks like. */
+.twist {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.twist:hover {
+  text-decoration: underline;
+}
+/* The executable bit is the one thing in a listing worth colouring: it is
+   what says a file is a command rather than a resource. */
+.tree .exe {
+  color: var(--fg);
+  font-weight: 600;
+}
