@@ -9,7 +9,8 @@ mod treefs;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use fuser::MountOption;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use fetch::{Fetcher, DEFAULT_CACHE_URL};
@@ -97,6 +98,29 @@ fn open_index(db: Option<PathBuf>) -> Result<Arc<Index>> {
     Ok(Arc::new(index))
 }
 
+/// Clear a mountpoint left behind by a daemon that was killed outright.
+///
+/// A process stopped with SIGKILL cannot unmount itself, and what it leaves
+/// is a mountpoint whose every syscall fails with ENOTCONN. Mounting over one
+/// fails, and so does looking at it, so the next run would refuse to start
+/// for a reason that reads like a permissions problem. Only ENOTCONN is
+/// treated this way: any other error is somebody else's mount or a real
+/// problem, and unmounting it would be overreach.
+fn clear_stale_mount(path: &Path) {
+    let Err(err) = std::fs::metadata(path) else {
+        return;
+    };
+    if err.raw_os_error() != Some(libc::ENOTCONN) {
+        return;
+    }
+
+    eprintln!("omnibin: clearing a stale mount at {}", path.display());
+    let _ = std::process::Command::new("fusermount3")
+        .arg("-u")
+        .arg(path)
+        .status();
+}
+
 fn mount(
     store: PathBuf,
     tree: PathBuf,
@@ -121,6 +145,10 @@ fn mount(
             "refusing to mount over {NIX_STORE} without --passthrough; \
              bind-mount the real store somewhere first"
         );
+    }
+
+    for path in [&store, &tree] {
+        clear_stale_mount(path);
     }
 
     let mut options = vec![MountOption::RO, MountOption::FSName("omnibin".into())];
@@ -162,10 +190,10 @@ fn mount(
     );
 
     // Both sessions run on their own threads; this one waits for a signal and
-    // lets the guards unmount on the way out.
-    let (tx, rx) = std::sync::mpsc::channel();
-    ctrl_c(tx)?;
-    let _ = rx.recv();
+    // then drops them, which is what unmounts. Dropping is the only cleanup
+    // there is: a process killed with SIGKILL cannot unmount itself, which is
+    // what the stale-mount check at startup exists to recover from.
+    wait_for_signal()?;
 
     drop(tree_session);
     drop(store_session);
@@ -193,34 +221,65 @@ fn lock_memory() -> Result<()> {
     Ok(())
 }
 
-/// Deliver one message when the process is interrupted.
-fn ctrl_c(tx: std::sync::mpsc::Sender<()>) -> Result<()> {
-    // A raw handler rather than a signal crate: the only thing it has to do is
-    // wake the main thread up.
-    static SENDER: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>> =
-        std::sync::OnceLock::new();
-    SENDER
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap()
-        .replace(tx);
+/// The write end of a pipe the signal handler pokes.
+///
+/// A handler may only call async-signal-safe functions. Sending on a channel
+/// is not one: it allocates and takes locks, so a signal delivered to a
+/// worker thread already inside the allocator deadlocks the handler there and
+/// the process never learns it was asked to stop. That is exactly what
+/// happened here, and why a killed mount used to be left behind. write(2) is
+/// safe, so the handler writes a byte and the main thread reads it.
+static SIGNAL_WRITE_FD: AtomicI32 = AtomicI32::new(-1);
 
-    extern "C" fn handler(_signal: libc::c_int) {
-        if let Some(cell) = SENDER.get() {
-            if let Ok(guard) = cell.lock() {
-                if let Some(tx) = guard.as_ref() {
-                    let _ = tx.send(());
-                }
-            }
+extern "C" fn on_signal(_signal: libc::c_int) {
+    let fd = SIGNAL_WRITE_FD.load(Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+
+    let byte: u8 = 1;
+    // Nothing useful to do with the result inside a handler, and the caller
+    // wakes on any byte.
+    unsafe {
+        libc::write(fd, std::ptr::addr_of!(byte).cast(), 1);
+    }
+}
+
+/// Block until the process is asked to stop.
+fn wait_for_signal() -> Result<()> {
+    let mut fds = [0 as libc::c_int; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("creating the signal pipe");
+    }
+    let (read_fd, write_fd) = (fds[0], fds[1]);
+    SIGNAL_WRITE_FD.store(write_fd, Ordering::Relaxed);
+
+    for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+        // Through a pointer rather than straight to an integer: casting a
+        // function item to a usize is what `function_casts_as_integer` warns
+        // about, and the two-step spelling is the one it asks for.
+        let handler = on_signal as *const () as libc::sighandler_t;
+        if unsafe { libc::signal(signal, handler) } == libc::SIG_ERR {
+            return Err(std::io::Error::last_os_error())
+                .context(format!("installing a handler for signal {signal}"));
         }
     }
 
-    unsafe {
-        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
-        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
-    }
+    // One byte is the whole message. A read interrupted by a signal that is
+    // not one of ours is resumed rather than treated as a shutdown.
+    let mut byte = [0u8; 1];
+    loop {
+        let read = unsafe { libc::read(read_fd, byte.as_mut_ptr().cast(), 1) };
+        if read == 1 {
+            return Ok(());
+        }
 
-    Ok(())
+        let err = std::io::Error::last_os_error();
+        if read < 0 && err.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(err).context("waiting on the signal pipe");
+    }
 }
 
 fn which(db: Option<PathBuf>, name: String, all: bool) -> Result<()> {

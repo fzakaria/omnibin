@@ -51,20 +51,12 @@ impl Index {
         Ok(Self { db: Mutex::new(db) })
     }
 
-    /// The store path a `<digest>-<name>` basename refers to.
+    /// The store path a digest names.
     ///
-    /// Only the digest is matched. The name after it is what the cache says
-    /// the path is called, and a caller that guessed it wrong, whether from a
-    /// stale symlink or a typo, still gets the right bytes, because in a
-    /// content-addressed store the digest is the whole identity.
-    pub fn path_by_base_name(&self, base_name: &str) -> Result<Option<StorePath>> {
-        if base_name.len() < DIGEST_LEN {
-            return Ok(None);
-        }
-
-        self.path_by_digest(&base_name[..DIGEST_LEN])
-    }
-
+    /// Only the digest is ever matched. The name after it is what the cache
+    /// says the path is called, and a caller that got it wrong, from a stale
+    /// symlink or a typo, still reaches the right bytes: in a content
+    /// addressed store the digest is the whole identity.
     pub fn path_by_digest(&self, digest: &str) -> Result<Option<StorePath>> {
         let db = self.db.lock().unwrap();
         let row = db
