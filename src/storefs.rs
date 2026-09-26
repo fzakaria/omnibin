@@ -120,15 +120,29 @@ impl StoreFs {
         ino
     }
 
+    /// Join a position inside a store path onto its root.
+    ///
+    /// Not `base.join(rel)`, because joining an empty rel appends a trailing
+    /// separator, and `…-omnibin.db/` does not stat: a regular file cannot
+    /// carry one. That only bites where the store path *is* a file rather
+    /// than a directory, which is every fixed-output artifact, including the
+    /// database this filesystem reads.
+    fn at(base: &Path, rel: &Path) -> PathBuf {
+        if rel.as_os_str().is_empty() {
+            return base.to_path_buf();
+        }
+        base.join(rel)
+    }
+
     /// The real filesystem path for a node, fetching the store path if the
     /// node is lazy and has not been fetched yet.
     fn real_path(&self, node: &Node) -> Option<PathBuf> {
         match &node.source {
-            Source::Passthrough(base) => Some(base.join(&node.rel)),
+            Source::Passthrough(base) => Some(Self::at(base, &node.rel)),
             Source::Lazy(digest) => {
                 let path = self.store_path(digest)?;
                 let dir = self.fetcher.materialize(&path).ok()?;
-                Some(dir.join(&node.rel))
+                Some(Self::at(&dir, &node.rel))
             }
         }
     }
@@ -136,9 +150,9 @@ impl StoreFs {
     /// The real path only if it is already on disk, with no fetch.
     fn materialized_path(&self, node: &Node) -> Option<PathBuf> {
         match &node.source {
-            Source::Passthrough(base) => Some(base.join(&node.rel)),
+            Source::Passthrough(base) => Some(Self::at(base, &node.rel)),
             Source::Lazy(digest) if self.fetcher.is_materialized(digest) => {
-                Some(self.fetcher.store_path_dir(digest).join(&node.rel))
+                Some(Self::at(&self.fetcher.store_path_dir(digest), &node.rel))
             }
             Source::Lazy(_) => None,
         }
@@ -458,10 +472,14 @@ impl Filesystem for StoreFs {
             if let Some(base) = &self.passthrough {
                 if let Ok(dir) = fs::read_dir(base) {
                     for entry in dir.flatten() {
-                        entries.push((
-                            entry.file_name().to_string_lossy().into_owned(),
-                            FileType::Directory,
-                        ));
+                        // A store path can be a file, so the type comes from
+                        // the entry rather than being assumed.
+                        let kind = match entry.file_type() {
+                            Ok(t) if t.is_dir() => FileType::Directory,
+                            Ok(t) if t.is_symlink() => FileType::Symlink,
+                            _ => FileType::RegularFile,
+                        };
+                        entries.push((entry.file_name().to_string_lossy().into_owned(), kind));
                     }
                 }
             }
