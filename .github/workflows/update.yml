@@ -33,6 +33,8 @@ permissions:
 # machine asking.
 env:
   SYSTEMS: "x86_64-linux aarch64-linux"
+  # The Docker Hub account the image is published under.
+  DOCKER_USER: fmzakari
 
 jobs:
   update:
@@ -141,7 +143,11 @@ jobs:
           done
 
       - name: cut the release
-        run: nix develop --command tools/cut-data-release.sh
+        id: cut
+        run: |
+          tag="data-$(date -u +%Y%m%d)"
+          nix develop --command tools/cut-data-release.sh "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -159,9 +165,11 @@ jobs:
       # data-pins.json is the only thing in the flake tree that knows where the
       # data lives, so it and the status block are the whole commit.
       - name: commit
+        id: commit
         run: |
           if git diff --quiet data-pins.json README.md; then
             echo "nothing moved"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -169,3 +177,36 @@ jobs:
           git add data-pins.json README.md
           git commit -m "Index through $(date -u +%Y-%m-%d)"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # The image bakes the pinned database in, so it is stale the moment a
+      # cut lands. Publishing it here is what keeps the release, the flake and
+      # the image describing one index. Only on a run that actually moved:
+      # rebuilding an identical image to push the same layers again is a few
+      # hundred megabytes of nothing.
+      - name: log in to Docker Hub
+        if: steps.commit.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: publish the image
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          nix build .#docker --print-build-logs
+          docker load < result
+          rm -f result
+          for tag in latest "${{ steps.cut.outputs.tag }}"; do
+            docker tag omnibin:latest "$DOCKER_USER/omnibin:$tag"
+            docker push "$DOCKER_USER/omnibin:$tag"
+          done
+
+      # The repository page states counts that come out of the database, so it
+      # moves with the image. A token that cannot edit repository metadata
+      # fails here without failing the run: the image is the artifact, the
+      # page is a description of it.
+      - name: publish the Docker Hub overview
+        if: steps.commit.outputs.changed == 'true'
+        continue-on-error: true
+        run: nix develop --command tools/push-docker-overview.sh "$DOCKER_USER/omnibin"
