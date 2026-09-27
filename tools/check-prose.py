@@ -108,8 +108,16 @@ def offenders(path):
 
 
 def walk(root):
+    """Every checkable file under root, minus the directories worth skipping.
+
+    Skipping is decided on the path *below* root, never on the absolute one.
+    Matching absolute parts means an ancestor of the checkout can silence the
+    whole tree: a sandbox that unpacks the source under /build, or any
+    directory named data or result anywhere above it, and the walk yields
+    nothing while reporting success.
+    """
     for path in sorted(root.rglob("*")):
-        if any(part in SKIP_DIRS for part in path.parts):
+        if any(part in SKIP_DIRS for part in path.relative_to(root).parts):
             continue
         if path.is_file() and path.suffix in CHECKED_SUFFIXES:
             yield path
@@ -143,6 +151,12 @@ def main():
     if total:
         print(f"\n{total} violation(s)", file=sys.stderr)
         sys.exit(1)
+
+    # A check that read nothing is not a check that passed. This is the
+    # failure the skip rule above used to produce silently, and the only way
+    # to notice it from the outside is to refuse to call it success.
+    if not paths:
+        sys.exit(f"check-prose: no files to check under {root}")
 
     print(f"{len(paths)} files checked, no violations")
 

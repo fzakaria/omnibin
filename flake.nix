@@ -129,6 +129,14 @@
         }
       );
 
+      checks = forAllSystems (
+        system:
+        import ./nix/checks.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          inherit self;
+        }
+      );
+
       formatter = forAllSystems (
         system: import ./nix/formatter.nix { pkgs = nixpkgs.legacyPackages.${system}; }
       );

@@ -26,11 +26,10 @@ jobs:
           name: omnibin
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # House style, checked rather than remembered: no em dashes, none of the
-      # vocabulary that marks machine written prose. Code comments count.
-      - name: prose
-        run: nix develop --command tools/check-prose.py
-
+      # House style is a flake check now, so `nix flake check` covers it along
+      # with everything else. Running it here as well would only mean it gets
+      # checked in a shell and in the sandbox, and the sandbox is the one that
+      # keeps running when this file changes shape.
       - name: nix flake check
         run: nix flake check --all-systems
 
