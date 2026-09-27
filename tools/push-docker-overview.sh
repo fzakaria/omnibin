@@ -19,17 +19,48 @@ set -euo pipefail
 ROOT="${OMNIBIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 REPO="${1:-fmzakari/omnibin}"
 OVERVIEW="$ROOT/docker/overview.md"
+# The database the flake pins, not whatever is lying in data/. Those differ
+# the moment a cut lands, and the page would then state counts from a build
+# nobody is running. Resolved the same way the container does it: out of the
+# wrapper, which has the pinned path baked in.
+if [ -n "${OMNIBIN_DB:-}" ]; then
+  DB="$OMNIBIN_DB"
+else
+  WRAPPER=$(nix build "$ROOT#omnibin" --no-link --print-out-paths)/bin/omnibin
+  DB=$(grep -o "/nix/store/[a-z0-9]*-omnibin-x86_64-linux.db" "$WRAPPER" | head -1)
+fi
 
 if [ ! -f "$OVERVIEW" ]; then
   echo "push-docker-overview: no $OVERVIEW" >&2
   exit 1
 fi
+if [ ! -f "$DB" ]; then
+  echo "push-docker-overview: no $DB; the page states counts from it" >&2
+  exit 1
+fi
 
-python3 - "$REPO" "$OVERVIEW" <<'PY'
+python3 - "$REPO" "$OVERVIEW" "$DB" <<'PY'
 import base64, json, os, sys, urllib.error, urllib.request
 
-repo, overview_path = sys.argv[1:3]
+repo, overview_path, db_path = sys.argv[1:4]
 overview = open(overview_path).read()
+
+# The counts move with every data cut, so the page states them from the
+# database rather than from whatever was true when somebody last typed them.
+import sqlite3
+
+db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+executables = db.execute("SELECT count(*) FROM latest").fetchone()[0]
+versions = db.execute("SELECT count(*) FROM bins").fetchone()[0]
+for token, value in (
+    ("{{executables}}", str(executables)),
+    ("{{executables_grouped}}", f"{executables:,}"),
+    ("{{versions_grouped}}", f"{versions:,}"),
+):
+    overview = overview.replace(token, value)
+
+if "{{" in overview:
+    sys.exit("push-docker-overview: an unfilled token is left in the overview")
 
 config = os.path.expanduser("~/.docker/config.json")
 if not os.path.exists(config):

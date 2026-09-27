@@ -148,6 +148,14 @@ jobs:
       - name: update the status block
         run: nix develop --command tools/status.py --db data/omnibin-*.db --readme
 
+      # status.py writes a markdown table the way a program does, with single
+      # dashes, and prettier aligns the columns. Committing the unaligned form
+      # left the next check run failing `nix fmt && git diff --exit-code` on a
+      # commit nobody had touched by hand. The formatter is the authority, so
+      # it runs before the commit rather than being discovered after it.
+      - name: nix fmt
+        run: nix fmt
+
       # data-pins.json is the only thing in the flake tree that knows where the
       # data lives, so it and the status block are the whole commit.
       - name: commit

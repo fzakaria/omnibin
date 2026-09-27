@@ -33,10 +33,11 @@ every version of each, what it costs to fetch, and what is inside it.
 ![update workflow](https://github.com/fzakaria/omnibin/actions/workflows/update.yml/badge.svg?branch=main)
 
 <!-- BEGIN index-status -->
-| system | executables | `name@version` | package versions | store paths |
-| --- | --- | --- | --- | --- |
-| `aarch64-linux` | 47,698 | 792,441 | 224,416 | 624,929 |
-| `x86_64-linux` | 51,495 | 882,483 | 253,995 | 624,929 |
+
+| system          | executables | `name@version` | package versions | store paths |
+| --------------- | ----------- | -------------- | ---------------- | ----------- |
+| `aarch64-linux` | 47,698      | 792,441        | 224,416          | 624,929     |
+| `x86_64-linux`  | 51,495      | 882,483        | 253,995          | 624,929     |
 
 Store paths from 2012-07-05 to 2026-09-23, 60.9 TB unpacked. Commands are nameable from 2017-03-23 on, which is when Hydra started publishing file listings. Built from nixpkgs-multiverse `data-20260926`.
 <!-- END index-status -->

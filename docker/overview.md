@@ -7,14 +7,14 @@ reads a file inside it.
 ```console
 $ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN fmzakari/omnibin
 $ ls /omnibin/bin | wc -l
-51468
+{{executables}}
 $ python3@3.6.2 --version
 Python 3.6.2
 $ jq --version
 jq-1.8.1
 ```
 
-The image is 352 MB. The 51,468 commands it can run are not in it.
+The image is around 400 MB. The {{executables_grouped}} commands it can run are not in it.
 
 ## What it needs
 
@@ -59,7 +59,7 @@ without jq. Put the work in `CMD` or `ENTRYPOINT`.
 ```
 
 `ls /omnibin/bin` lists the bare names. The versioned forms resolve but are
-not listed, because there are 881,933 of them. `omnibin which --all python3`
+not listed, because there are {{versions_grouped}} of them. `omnibin which --all python3`
 prints every version with what each costs to fetch, and `/omnibin/index.db` is
 a plain SQLite file holding the whole index.
 
