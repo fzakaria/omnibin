@@ -54,12 +54,12 @@
    "tag": "data-20260925"
   },
   "omnibin-aarch64-linux.db": {
-   "narHash": "sha256-8/apx86mRMLyK9PzUkLwFDcp7MKZq1wxLCjIT9TynS0=",
-   "tag": "data-20260929"
+   "narHash": "sha256-0F+MFuRKJI9W7YiujcgByUR41ehmDF/dhDkuA80W9tQ=",
+   "tag": "data-20260930"
   },
   "omnibin-x86_64-linux.db": {
-   "narHash": "sha256-uK/3w+5Ui0j93PYhfvt9t031V43a00whFMpZRAcRqII=",
-   "tag": "data-20260929"
+   "narHash": "sha256-d+FFZ2LuRLygX8myKLNaiNfIv+hQs40aIwEA98Rvjmw=",
+   "tag": "data-20260930"
   }
  },
  "multiverseTag": "data-20260928",
