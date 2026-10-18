@@ -106,6 +106,17 @@ On a workstation that happens inside a user and mount namespace that dies with
 the shell, so nothing outside it ever sees the mount. On a VM or a container
 it happens for the whole machine, because there it is the point.
 
+Whichever it is, the process serving `/nix/store` must never be a client of
+it. Its requests can only be answered by itself, so each one waits forever.
+They are easy to make by accident. libfuse execs helpers out of `/nix/store`
+while it mounts, a fetch runs a decompressor that lives there, and SQLite
+looks beside the database, which lives there too. So the lazy store is never
+mounted at `/nix/store` directly. It is mounted at `/run/omnibin/store`, served
+from threads in a private mount namespace where `/nix/store` is still the real
+one, and only then bound over `/nix/store` for everybody else. The database is
+opened immutable, so SQLite reads it through the descriptor it opened and
+never goes back to its path.
+
 ## What the filesystem answers, and from where
 
 | operation                                  | source                        | network                 |

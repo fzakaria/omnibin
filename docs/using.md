@@ -34,8 +34,9 @@ Two details worth knowing.
 The daemon runs **outside** the namespace on purpose. omnibin's own libraries
 live in `/nix/store`, and a process serving `/nix/store` from inside the
 namespace can page-fault on itself, which deadlocks with no way out. Outside,
-`/nix/store` is still the real one and nothing can recurse. The module does
-mount from inside, as root, and calls `mlockall` to make that safe.
+`/nix/store` is still the real one and nothing can recurse. The module gets the
+same effect by serving from threads in a private mount namespace, then
+binding the lazy store over `/nix/store` for everything else.
 
 The tree is **not** at `/omnibin` here. Being root in a user namespace is not
 being root on the host, and `/` belongs to real root, so the directory cannot
@@ -60,8 +61,9 @@ $ nix run github:fzakaria/omnibin -- python3@3.6.2 -c 'print(1)'
 This mounts the lazy store for the whole system and puts `/omnibin/bin` last
 on `PATH`. It is what a VM or a container wants and it is not what a laptop
 wants: it puts a FUSE process in the path of every binary the machine runs,
-and if that process dies the machine has no `/nix/store` until systemd
-restarts it.
+and if that process dies the machine has no `/nix/store` until it reboots.
+systemd tries to restart the service, but the restart itself has to exec out
+of `/nix/store` and fails with "Transport endpoint is not connected".
 
 The real store is bind-mounted to `/run/omnibin/real-store` before the lazy
 one goes over it, and every lookup checks it first. That is what keeps the

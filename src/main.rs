@@ -8,10 +8,12 @@ mod treefs;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use fuser::MountOption;
+use fuser::{Filesystem, MountOption, Session};
+use std::ffi::CString;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 use fetch::{Fetcher, DEFAULT_CACHE_URL};
 use index::Index;
@@ -22,6 +24,13 @@ use treefs::TreeFs;
 /// every binary's interpreter and RPATH, so the lazy store is only useful at
 /// this exact path.
 const NIX_STORE: &str = "/nix/store";
+
+/// Where the lazy store is mounted before being bound over /nix/store.
+///
+/// libfuse execs `mount` and `fusermount3` out of /nix/store before it
+/// returns, and nothing serves the new mount until it does. Mounted directly
+/// at /nix/store, those execs hang forever.
+const STAGED_STORE: &str = "/run/omnibin/store";
 
 /// Where the browsable tree is mounted by default.
 const DEFAULT_TREE: &str = "/omnibin";
@@ -147,7 +156,18 @@ fn mount(
         );
     }
 
-    for path in [&store, &tree] {
+    // Over /nix/store, mount at STAGED_STORE and bind once served.
+    let bind_over = (store == Path::new(NIX_STORE)).then(|| store.clone());
+    let fuse_store = match &bind_over {
+        Some(_) => PathBuf::from(STAGED_STORE),
+        None => store.clone(),
+    };
+    if bind_over.is_some() {
+        std::fs::create_dir_all(&fuse_store)
+            .with_context(|| format!("creating {}", fuse_store.display()))?;
+    }
+
+    for path in [&fuse_store, &tree] {
         clear_stale_mount(path);
     }
 
@@ -171,13 +191,30 @@ fn mount(
         lock_memory()?;
     }
 
+    // Mounted while /nix/store is still the real store. See STAGED_STORE.
     let store_fs = StoreFs::new(index.clone(), fetcher, passthrough);
-    let store_session = fuser::spawn_mount2(store_fs, &store, &options)
-        .with_context(|| format!("mounting {}", store.display()))?;
+    let mut store_session = Session::new(store_fs, &fuse_store, &options)
+        .with_context(|| format!("mounting {}", fuse_store.display()))?;
 
     let tree_fs = TreeFs::new(index.clone());
-    let tree_session = fuser::spawn_mount2(tree_fs, &tree, &options)
+    let mut tree_session = Session::new(tree_fs, &tree, &options)
         .with_context(|| format!("mounting {}", tree.display()))?;
+
+    // Unmounted from this thread, which stays in the machine's namespace.
+    let mut store_unmounter = store_session.unmount_callable();
+    let mut tree_unmounter = tree_session.unmount_callable();
+
+    let namespace = match &bind_over {
+        Some(_) => ServingNamespace::PrivateRealStore,
+        None => ServingNamespace::Inherited,
+    };
+    serve(store_session, namespace)?;
+    serve(tree_session, namespace)?;
+
+    // Bind only after both serving threads have their private namespace.
+    if let Some(target) = &bind_over {
+        bind_mount(&fuse_store, target)?;
+    }
 
     let names = index.meta("names")?.unwrap_or_else(|| "?".into());
     let paths = index.meta("paths")?.unwrap_or_else(|| "?".into());
@@ -190,14 +227,126 @@ fn mount(
     );
 
     // Both sessions run on their own threads; this one waits for a signal and
-    // then drops them, which is what unmounts. Dropping is the only cleanup
-    // there is: a process killed with SIGKILL cannot unmount itself, which is
-    // what the stale-mount check at startup exists to recover from.
+    // then unmounts them. Unmounting is the only cleanup there is: a process
+    // killed with SIGKILL cannot unmount itself, which is what the stale-mount
+    // check at startup exists to recover from.
     wait_for_signal()?;
 
-    drop(tree_session);
-    drop(store_session);
+    // Drop the bind first, so new processes see the real store. Programs
+    // already running from the lazy store get SIGBUS once this process exits.
+    if let Some(target) = &bind_over {
+        detach_mount(target);
+    }
+
+    // The serving threads are not joined. A private namespace holds a copy
+    // of each mount, so a session loop never sees it go away; process exit
+    // ends the threads.
+    tree_unmounter.unmount()?;
+    store_unmounter.unmount()?;
     Ok(())
+}
+
+/// Which mount namespace a session's serving thread works in.
+#[derive(Clone, Copy)]
+enum ServingNamespace {
+    /// The process's own. Used when /nix/store is not being replaced.
+    Inherited,
+
+    /// A private copy taken before the bind over /nix/store, so the serving
+    /// thread keeps the real store. A fetch loads NSS modules and runs a
+    /// decompressor from /nix/store, and the serving thread cannot answer its
+    /// own lookups.
+    PrivateRealStore,
+}
+
+/// Run a session's loop on a thread of its own, in the given namespace.
+///
+/// Returns once the thread has entered the namespace, so later mounts are
+/// hidden from the thread.
+fn serve<FS: Filesystem + Send + 'static>(
+    mut session: Session<FS>,
+    namespace: ServingNamespace,
+) -> Result<()> {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let entered = match namespace {
+            ServingNamespace::Inherited => Ok(()),
+            ServingNamespace::PrivateRealStore => enter_private_namespace(),
+        };
+
+        let failed = entered.is_err();
+        // The caller blocks on recv, so the send cannot fail.
+        let _ = entered_tx.send(entered);
+        if failed {
+            return Ok(());
+        }
+
+        session.run()
+    });
+
+    entered_rx
+        .recv()
+        .context("the serving thread exited before entering its namespace")?
+        .context("entering a private mount namespace for the store")?;
+
+    Ok(())
+}
+
+/// Move the calling thread alone into a private copy of its mount namespace.
+///
+/// Made private recursively, since the copied mounts start as peers of the
+/// originals and would receive the bind over /nix/store.
+fn enter_private_namespace() -> std::io::Result<()> {
+    if unsafe { libc::unshare(libc::CLONE_NEWNS) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let made_private = unsafe {
+        libc::mount(
+            std::ptr::null(),
+            c"/".as_ptr(),
+            std::ptr::null(),
+            libc::MS_REC | libc::MS_PRIVATE,
+            std::ptr::null(),
+        )
+    };
+    if made_private != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+/// Bind an existing mount over another path.
+fn bind_mount(source: &Path, target: &Path) -> Result<()> {
+    let source_c = CString::new(source.as_os_str().as_bytes())?;
+    let target_c = CString::new(target.as_os_str().as_bytes())?;
+
+    let bound = unsafe {
+        libc::mount(
+            source_c.as_ptr(),
+            target_c.as_ptr(),
+            std::ptr::null(),
+            libc::MS_BIND,
+            std::ptr::null(),
+        )
+    };
+    if bound != 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("binding {} over {}", source.display(), target.display()));
+    }
+
+    Ok(())
+}
+
+/// Lazily detach a mount. Only called on shutdown, so errors are ignored.
+fn detach_mount(target: &Path) {
+    let Ok(target_c) = CString::new(target.as_os_str().as_bytes()) else {
+        return;
+    };
+    unsafe {
+        libc::umount2(target_c.as_ptr(), libc::MNT_DETACH);
+    }
 }
 
 /// Pin this process's pages in RAM.

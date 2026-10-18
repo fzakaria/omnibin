@@ -6,6 +6,7 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -44,9 +45,36 @@ pub struct Index {
 /// A Nix store path digest is this many base-32 characters.
 pub const DIGEST_LEN: usize = 32;
 
+/// Bytes an SQLite URI filename cannot carry literally: the escape itself,
+/// and the two that would end the path and start a query or a fragment.
+const URI_RESERVED: &[u8] = b"%?#";
+
+/// The database path as a percent-encoded SQLite URI with `immutable=1`.
+///
+/// Without immutable, SQLite stats `<db>-journal` before every read. The
+/// database is in /nix/store, so with the lazy store mounted there omnibin
+/// would be answering its own lookup while holding the connection lock.
+fn immutable_uri(path: &Path) -> String {
+    let mut uri = String::from("file:");
+    for &byte in path.as_os_str().as_bytes() {
+        // Non-ASCII bytes are escaped too, so a path that is not UTF-8 still
+        // makes a valid URI and SQLite decodes it back to the same bytes.
+        if URI_RESERVED.contains(&byte) || !byte.is_ascii() {
+            uri.push_str(&format!("%{byte:02X}"));
+            continue;
+        }
+        uri.push(byte as char);
+    }
+
+    uri.push_str("?immutable=1");
+    uri
+}
+
 impl Index {
     pub fn open(path: &Path) -> Result<Self> {
-        let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        let flags =
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+        let db = Connection::open_with_flags(immutable_uri(path), flags)
             .with_context(|| format!("opening {}", path.display()))?;
         Ok(Self { db: Mutex::new(db) })
     }
@@ -160,5 +188,46 @@ impl Index {
         Ok(db
             .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
             .optional()?)
+    }
+}
+
+/// Tests that `Index::open` escapes the path in its URI, by writing a
+/// database under a name SQLite would misread unescaped and reading it back.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+
+    /// A directory of its own under the system temp dir, removed on drop.
+    struct TempDir(PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A name with `%`, `?`, `#`, a space and a non-UTF-8 byte round-trips.
+    #[test]
+    fn opens_a_path_that_needs_escaping() {
+        let dir = TempDir(
+            std::env::temp_dir().join(format!("omnibin-index-test-{}", std::process::id())),
+        );
+        std::fs::create_dir_all(&dir.0).unwrap();
+
+        let name = OsStr::from_bytes(b"in dex%41?x=1#frag\xff.db");
+        let path = dir.0.join(name);
+        let writer = Connection::open(&path).unwrap();
+        writer
+            .execute_batch(
+                "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+                 INSERT INTO meta VALUES ('names', '42');",
+            )
+            .unwrap();
+        drop(writer);
+
+        let index = Index::open(&path).unwrap();
+        assert_eq!(index.meta("names").unwrap().as_deref(), Some("42"));
     }
 }

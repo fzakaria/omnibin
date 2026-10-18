@@ -92,10 +92,15 @@ in
 
       serviceConfig = {
         Type = "simple";
+        # Private, or the bind joins /nix/store's shared peer group and the
+        # lazy store propagates over the passthrough too.
         ExecStartPre = [
           "${pkgs.coreutils}/bin/mkdir -p ${realStore} ${cfg.tree} ${cfg.cacheDir}"
         ]
-        ++ lib.optional cfg.mountStore "${pkgs.util-linux}/bin/mount --bind /nix/store ${realStore}";
+        ++ lib.optionals cfg.mountStore [
+          "${pkgs.util-linux}/bin/mount --bind /nix/store ${realStore}"
+          "${pkgs.util-linux}/bin/mount --make-private ${realStore}"
+        ];
 
         ExecStart = lib.concatStringsSep " " (
           [

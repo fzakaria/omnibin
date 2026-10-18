@@ -9,8 +9,9 @@
 # whose own libraries live in /nix/store; serving /nix/store from inside the
 # namespace means a page fault on one of them is answered by a thread blocked
 # on that same fault, and the whole namespace hangs. Mounting over a live
-# store from within is possible, and the NixOS module does it as root with
-# mlockall, but it is not worth needing privileges for here.
+# store from within is possible, and the NixOS module does it as root by
+# serving from threads in a private mount namespace, but it is not worth
+# needing privileges for here.
 #
 # So: the daemon serves a neutral mountpoint in the host's namespace, where
 # /nix/store is still the real one and nothing can recurse, and the namespace
