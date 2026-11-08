@@ -65,10 +65,12 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           df -h /
 
-      # outpaths, the sibling output map and the narinfo graph, from
-      # multiverse's newest dated release rather than from a checkout. The
-      # narinfo shards are keyed by digest and describe every system, so only
-      # the per system files are fetched twice.
+      # outpaths, the sibling output map and the narinfo graph, each from the
+      # dated release multiverse's data-pins.json names for it rather than
+      # from a checkout. A dated tag holds only what changed that day, so the
+      # pins are what describe a complete set. The narinfo shards are keyed by
+      # digest and describe every system, so only the per system files are
+      # fetched twice.
       - name: fetch multiverse artifacts
         run: |
           for system in $SYSTEMS; do

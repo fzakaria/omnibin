@@ -2,11 +2,18 @@
 # Downloads the nixpkgs-multiverse artifacts omnibin builds its index from.
 #
 # omnibin adds one artifact of its own, the file listings, and takes
-# everything else from multiverse's published data release. Taking them from a
-# release rather than from a checkout matters: a working tree carries
+# everything else from multiverse's published data releases. Taking them from
+# a release rather than from a checkout matters: a working tree carries
 # intermediate files from whatever ran last, and joining a fresh outpaths file
 # against a stale narinfo graph silently drops every package whose digest the
 # graph has not seen yet.
+#
+# Multiverse's dated tags are deltas, not snapshots. A cut uploads only the
+# files whose bytes moved since the previous cut, and data-pins.json in the
+# multiverse repo records, per file, the tag that holds the current bytes and
+# their narHash. So the pins file, not the newest tag, is what names a
+# complete set: on a day the linux outs maps did not change they are absent
+# from that day's tag and pinned to the day before.
 #
 # Two artifacts, and they answer different questions:
 #
@@ -25,52 +32,84 @@
 #                            a path without asking the cache about it first.
 #
 # Usage:
-#   tools/fetch-multiverse.sh                 # newest dated release
-#   tools/fetch-multiverse.sh data-20260924   # a specific cut
+#   tools/fetch-multiverse.sh           # the pins on multiverse's main
+#   tools/fetch-multiverse.sh <ref>     # the pins at a multiverse commit
 set -euo pipefail
 
 ROOT="${OMNIBIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 OUT="$ROOT/data/multiverse"
 REPO="fzakaria/nixpkgs-multiverse"
 SYSTEM="${OMNIBIN_SYSTEM:-x86_64-linux}"
+PINS_PATH="data-pins.json"
 
-# The newest dated cut, which is what `gh release list` puts first. The rolling
-# prerelease carries working state between cuts and is deliberately not used:
-# its bytes change under you, and an index built from them could not be
+# The multiverse commit whose pins describe the cut to fetch. main is the
+# newest cut; update-index.yml commits the repointed pins in the same run that
+# uploads the assets. The rolling prerelease is deliberately not used: its
+# bytes change under you, and an index built from them could not be
 # reproduced.
-TAG="${1:-}"
-if [ -z "$TAG" ]; then
-  TAG=$(gh release list --repo "$REPO" --limit 20 \
-    --json tagName --jq '[.[] | select(.tagName | startswith("data-") and (contains("rolling") | not))][0].tagName')
-fi
-
-if [ -z "$TAG" ]; then
-  echo "fetch-multiverse: could not find a dated release on $REPO" >&2
-  exit 1
-fi
+REF="${1:-main}"
 
 mkdir -p "$OUT"
-echo "fetch-multiverse: $TAG -> $OUT"
 
-# One download per asset, skipping what is already here. Assets on a dated tag
-# are immutable by convention, so a file that exists is the right file.
-mapfile -t ASSETS < <(gh release view "$TAG" --repo "$REPO" --json assets \
-  --jq ".assets[].name | select(startswith(\"info-indexed-\") or . == \"outpaths-$SYSTEM.json\" or . == \"outs-$SYSTEM.json\")")
-
-if [ "${#ASSETS[@]}" -eq 0 ]; then
-  echo "fetch-multiverse: $TAG has no artifacts for $SYSTEM" >&2
+PINS=$(mktemp)
+trap 'rm -f "$PINS"' EXIT
+gh api -H "Accept: application/vnd.github.raw" \
+  "repos/$REPO/contents/$PINS_PATH?ref=$REF" > "$PINS"
+if [ ! -s "$PINS" ]; then
+  echo "fetch-multiverse: could not read $PINS_PATH at $REF from $REPO" >&2
   exit 1
 fi
 
-for name in "${ASSETS[@]}"; do
-  if [ -f "$OUT/$name" ]; then
-    continue
-  fi
-  gh release download "$TAG" --repo "$REPO" --pattern "$name" --dir "$OUT"
-done
+echo "fetch-multiverse: $REPO@$REF pins -> $OUT"
 
-# The tag the index was built from, so a database can be traced back to the
-# multiverse cut it describes.
+# One download per pinned file, each from the tag the pins name and checked
+# against its narHash. A file already here with the right hash is skipped, so
+# the second system's run only fetches its own two per-system files.
+TAG=$(python3 - "$PINS" "$OUT" "$SYSTEM" <<'PY'
+import json, os, subprocess, sys
+
+pins_file, out, system = sys.argv[1:4]
+pins = json.load(open(pins_file))
+base = pins["baseUrl"]
+
+
+def nar_hash(path):
+    return subprocess.run(
+        ["nix", "hash", "path", "--sri", "--type", "sha256", path],
+        capture_output=True, text=True, check=True).stdout.strip()
+
+
+wanted = {
+    name: pin
+    for name, pin in pins["files"].items()
+    if name.startswith("info-indexed-")
+    or name in (f"outpaths-{system}.json", f"outs-{system}.json")
+}
+if not wanted:
+    sys.exit(f"fetch-multiverse: the pins name no artifacts for {system}")
+
+for name, pin in sorted(wanted.items()):
+    path = os.path.join(out, name)
+
+    if os.path.exists(path) and nar_hash(path) == pin["narHash"]:
+        continue
+
+    url = f"{base}/{pin['tag']}/{name}"
+    print(f"fetching {name} from {pin['tag']}", file=sys.stderr)
+    subprocess.run(["curl", "-sSfL", "-o", path, url], check=True)
+
+    have = nar_hash(path)
+    if have != pin["narHash"]:
+        sys.exit(f"fetch-multiverse: {name} hashed {have}, pinned {pin['narHash']}")
+
+# The newest tag any wanted file lives on is the cut this set describes;
+# everything pinned to an older tag is unchanged since then.
+print(max(pin["tag"] for pin in wanted.values()))
+print(f"fetch-multiverse: {len(wanted)} artifacts for {system}", file=sys.stderr)
+PY
+)
+
+# The cut the index was built from, so a database can be traced back to the
+# multiverse data it describes.
 echo "$TAG" > "$OUT/TAG"
-
-echo "fetch-multiverse: ${#ASSETS[@]} artifacts at $TAG"
+echo "fetch-multiverse: cut $TAG"
